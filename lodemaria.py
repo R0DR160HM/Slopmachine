@@ -338,6 +338,7 @@ def chat(model: str, max_results: int) -> None:
         {"role": "system", "content": SYSTEM_PROMPT}
     ]
 
+    active_model = model  # may be upgraded to Megabrain mid-session
     msg_queue: queue.Queue[str | None] = queue.Queue()
     _prompt_gate = threading.Event()
     _prompt_gate.set()
@@ -408,6 +409,12 @@ def chat(model: str, max_results: int) -> None:
             s = "ns" if queued > 1 else ""
             console.print(f"[dim]({queued} mensagem{s} na fila)[/dim]")
 
+        # Megabrain trigger
+        if re.search(r"mega\s*brain", user_input, re.IGNORECASE):
+            active_model = "qwen2.5:7b"
+            console.print("[bold magenta]⚡ Megabrain ativado.[/bold magenta]")
+            messages.append({"role": "assistant", "content": "Megabrain ativado."})
+
         # Pre-search any [bracketed] terms before sending to the model
         clean_input, search_context = pre_search_brackets(user_input, max_results)
 
@@ -426,7 +433,7 @@ def chat(model: str, max_results: int) -> None:
         for attempt in range(10):          # guard against infinite loops
             console.print(f"\n[dim cyan]{next(_THINKING_LABELS)}...[/dim cyan]")
             _prompt_gate.set()  # show "Digite:" now; SafeConsole keeps it below output
-            response = ollama.chat(model=model, messages=messages, options={"num_thread": 8})
+            response = ollama.chat(model=active_model, messages=messages, options={"num_thread": 8})
             assistant_text: str = response["message"]["content"]
 
             tool_call = parse_tool_call(assistant_text)
