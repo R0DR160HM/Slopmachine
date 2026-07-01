@@ -33,6 +33,7 @@ from typing import Any
 import ollama
 from ddgs import DDGS
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
@@ -171,7 +172,7 @@ def chat_with_timer(label: str, **chat_kwargs) -> Any:
         raise result["error"]
     return result["value"]
 
-SYSTEM_PROMPT = """You are Lodemar.ia Sansão Júnior, a multimodal assistant created by Rodrigo at the Ottimizza Software Factory.
+SYSTEM_PROMPT = """You are Lodemar.ia Sansão Júnior, a multimodal assistant created to help the user with any task.
 
 YOU ARE NOT A TEXT-ONLY ASSISTANT. You have six tools wired directly into this terminal. Use them.
 
@@ -182,7 +183,7 @@ To call a tool, respond with ONLY the JSON block below — no other text:
 {"tool": "news_search",  "query": "<keywords>"}       ← recent news, current events
 {"tool": "fetch_url",    "url": "<full url>"}         ← read the full text of a web page
 {"tool": "calculate",    "expression": "<math>"}      ← arithmetic (e.g. "2 * (3 + 4) ** 2")
-{"tool": "get_datetime"}                               ← the current local date and time
+{"tool": "get_datetime"}                              ← the current local date and time
 
 ABSOLUTE RULES — violating any of these is a critical failure:
 1. When the user asks for images, photos, or visual content of ANYTHING, you MUST call image_search. No exceptions. Do not say you cannot show images.
@@ -198,8 +199,11 @@ ABSOLUTE RULES — violating any of these is a critical failure:
 
 def web_search(query: str, max_results: int = DEFAULT_MAX_RESULTS) -> list[dict[str, str]]:
     """Run a DuckDuckGo text search and return a list of result dicts."""
-    with DDGS() as ddgs:
-        results = ddgs.text(query, max_results=max_results)
+    try:
+        with DDGS() as ddgs:
+            results = ddgs.text(query, max_results=max_results)
+    except Exception:
+        return []
     return results or []
 
 
@@ -218,15 +222,21 @@ def format_search_results(results: list[dict[str, str]]) -> str:
 
 def image_search(query: str, max_results: int = DEFAULT_MAX_RESULTS) -> list[dict]:
     """Run a DuckDuckGo image search and return a list of result dicts."""
-    with DDGS() as ddgs:
-        results = ddgs.images(query, max_results=max_results)
+    try:
+        with DDGS() as ddgs:
+            results = ddgs.images(query, max_results=max_results)
+    except Exception:
+        return []
     return results or []
 
 
 def news_search(query: str, max_results: int = DEFAULT_MAX_RESULTS) -> list[dict]:
     """Run a DuckDuckGo news search and return a list of result dicts."""
-    with DDGS() as ddgs:
-        results = ddgs.news(query, max_results=max_results)
+    try:
+        with DDGS() as ddgs:
+            results = ddgs.news(query, max_results=max_results)
+    except Exception:
+        return []
     return results or []
 
 
@@ -541,6 +551,224 @@ def trim_messages(
     return [system] + kept
 
 
+# ── Deep research mode ────────────────────────────────────────────────────────
+
+# Triggered when the user's message contains one of these phrases.
+DEEP_RESEARCH_RE = re.compile(r"deep\s*research|pesquisa\s+profunda", re.IGNORECASE)
+DEEP_SUBTOPICS = 4          # how many subtopics to drill into
+DEEP_FETCH_TOP = 2          # top links to fetch full text from per research pass
+
+
+def _deep_topic(user_input: str) -> str:
+    """Strip the trigger phrase (and stray brackets) to get the research topic."""
+    topic = DEEP_RESEARCH_RE.sub(" ", user_input)
+    topic = topic.replace("[", "").replace("]", "")
+    return topic.strip(" :–—-,.\t\n")
+
+
+def _llm_text(model: str, system: str, user: str, label: str) -> str:
+    """One-shot model call (fresh context) returning cleaned plain text."""
+    resp = chat_with_timer(
+        label,
+        model=model,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        options={"num_thread": 8, "num_ctx": NUM_CTX},
+    )
+    return strip_think(resp["message"]["content"]).strip()
+
+
+def _parse_list(text: str, limit: int) -> list[str]:
+    """Extract a list of short strings from a model reply (JSON array or lines)."""
+    match = re.search(r"\[.*\]", text, re.DOTALL)
+    if match:
+        try:
+            items = json.loads(match.group())
+            if isinstance(items, list):
+                out = [str(x).strip() for x in items if str(x).strip()]
+                if out:
+                    return out[:limit]
+        except json.JSONDecodeError:
+            pass
+    # Fallback: strip bullets/numbering from each non-empty line
+    lines = []
+    for ln in text.splitlines():
+        ln = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", ln).strip()
+        if ln:
+            lines.append(ln)
+    return lines[:limit]
+
+
+def _anchor_query(topic: str, sub: str) -> str:
+    """Guarantee a subtopic query stays tied to the main topic.
+
+    If the subtopic doesn't already mention the topic's key words, prepend the
+    topic so searches never drift into broad, unrelated territory.
+    """
+    topic, sub = topic.strip(), sub.strip()
+    # Consider the topic "present" if a significant word from it appears in sub.
+    sub_low = sub.lower()
+    key_words = [w for w in re.findall(r"\w+", topic.lower()) if len(w) > 3]
+    if any(w in sub_low for w in key_words):
+        return sub
+    return f"{topic}: {sub}"
+
+
+def gather_research(query: str, max_results: int, do_news: bool = True) -> str:
+    """Run text + news search for a query and fetch the top links; return context."""
+    sections: list[str] = []
+
+    console.print(f"  [bold yellow]🔍  Texto:[/bold yellow] [cyan]{query}[/cyan]")
+    text_results = web_search(query, max_results=max_results)
+    console.print(f"  [dim]{len(text_results)} resultado(s)[/dim]")
+    sections.append(f"Resultados de texto:\n{format_search_results(text_results)}")
+
+    if do_news:
+        console.print(f"  [bold yellow]📰  Notícias:[/bold yellow] [cyan]{query}[/cyan]")
+        news_results = news_search(query, max_results=max_results)
+        console.print(f"  [dim]{len(news_results)} notícia(s)[/dim]")
+        sections.append(f"Notícias:\n{format_news_results(news_results)}")
+
+    # Fetch the full text of the most promising links (snippets are short).
+    fetched = 0
+    for r in text_results:
+        if fetched >= DEEP_FETCH_TOP:
+            break
+        url = r.get("href", "")
+        if not url:
+            continue
+        console.print(f"  [bold yellow]🌐  Lendo:[/bold yellow] [cyan]{url}[/cyan]")
+        page = fetch_url(url)
+        sections.append(f"Conteúdo de {url}:\n{page}")
+        fetched += 1
+
+    return "\n\n".join(sections)
+
+
+# System prompts for each deep-research phase (assistant answers in Portuguese).
+_QUERY_SYS = (
+    "Você é Lodemar.ia. O usuário pediu uma pesquisa profunda. A partir da "
+    "mensagem dele, identifique o tópico central e formule UMA consulta de busca "
+    "concisa e eficaz (poucas palavras-chave) para iniciar a pesquisa. Responda "
+    "APENAS com a consulta de busca, em uma única linha, sem aspas nem preâmbulo."
+)
+_ABSTRACT_SYS = (
+    "Você é Lodemar.ia. Com base no material de pesquisa fornecido, escreva um "
+    "resumo (abstract) conciso de 1 parágrafo sobre o tópico, em português. "
+    "Destaque os pontos centrais. Responda apenas com o resumo, sem preâmbulo."
+)
+_SUBTOPICS_SYS = (
+    "Você é Lodemar.ia. Com base no tópico e no resumo, proponha os "
+    f"{DEEP_SUBTOPICS} subtópicos mais relevantes e ESPECÍFICOS para aprofundar "
+    "a pesquisa. REGRAS OBRIGATÓRIAS: (1) cada subtópico deve estar DIRETAMENTE e "
+    "fortemente ligado ao tópico principal — nunca genérico, amplo ou tangencial; "
+    "(2) cada subtópico DEVE conter as palavras-chave do tópico principal, de modo "
+    "a funcionar como uma consulta de busca focada e autossuficiente. "
+    "Responda APENAS com um array JSON de strings curtas de busca, sem nenhum "
+    'outro texto. Exemplo, para o tópico "buracos negros": '
+    '["buracos negros radiação Hawking", "buracos negros horizonte de eventos"]'
+)
+_SYNTH_SYS = (
+    "Você é Lodemar.ia. Escreva um relatório único, coeso e bem estruturado em "
+    "português, sintetizando TODO o material de pesquisa fornecido (resumo geral "
+    "e aprofundamento por subtópico). Use seções com títulos em markdown, integre "
+    "as informações de forma fluida (não liste fontes cruas nem URLs), e termine "
+    "com uma breve conclusão. Seja informativo e objetivo."
+)
+_IMG_QUERIES_SYS = (
+    "Você é Lodemar.ia. Com base no tópico e nos subtópicos, sugira 3 buscas de "
+    "imagem curtas e visuais que ilustrem bem o assunto. Responda APENAS com um "
+    'array JSON de strings, sem outro texto. Exemplo: ["consulta 1", "consulta 2"]'
+)
+
+
+def run_deep_research(request: str, model: str, max_results: int) -> str:
+    """Multi-phase research: interpret → overview → abstract → subtopics → dives → report."""
+    console.print(Panel(
+        f"[bold]🔬 Pesquisa profunda[/bold]\n[dim]{request}[/dim]",
+        border_style="magenta", expand=False,
+    ))
+
+    # Phase 1 — let the model decide what to search for, from the user's request
+    console.print("\n[bold magenta]▸ Fase 1/7[/bold magenta] — interpretando o pedido")
+    topic = _llm_text(
+        model, _QUERY_SYS,
+        f"Mensagem do usuário: {request}",
+        "Interpretando",
+    ).splitlines()[0].strip().strip('"').strip() or request
+    console.print(f"[dim]Consulta de busca:[/dim] [cyan]{topic}[/cyan]")
+
+    # Phase 2 — general research on the topic
+    console.print("\n[bold magenta]▸ Fase 2/7[/bold magenta] — pesquisa geral")
+    overview = gather_research(topic, max_results, do_news=True)
+
+    # Phase 3 — write an abstract from the overview
+    console.print("\n[bold magenta]▸ Fase 3/7[/bold magenta] — redigindo resumo")
+    abstract = _llm_text(
+        model, _ABSTRACT_SYS,
+        f"Tópico: {topic}\n\nMaterial de pesquisa:\n{overview}",
+        "Resumindo",
+    )
+    console.print("[bold cyan]Resumo:[/bold cyan]")
+    console.print(Markdown(abstract))
+
+    # Phase 4 — derive subtopics from the abstract
+    console.print("\n[bold magenta]▸ Fase 4/7[/bold magenta] — definindo subtópicos")
+    subtopics_raw = _llm_text(
+        model, _SUBTOPICS_SYS,
+        f"Tópico: {topic}\n\nResumo:\n{abstract}",
+        "Planejando",
+    )
+    subtopics = _parse_list(subtopics_raw, DEEP_SUBTOPICS)
+    if not subtopics:
+        subtopics = [topic]
+    console.print("[dim]Subtópicos:[/dim] " + ", ".join(f"[cyan]{s}[/cyan]" for s in subtopics))
+
+    # Phase 5 — deep research on each subtopic
+    console.print("\n[bold magenta]▸ Fase 5/7[/bold magenta] — aprofundando cada subtópico")
+    deep_sections: list[str] = []
+    for i, sub in enumerate(subtopics, 1):
+        query = _anchor_query(topic, sub)
+        console.print(f"\n[bold]({i}/{len(subtopics)}) {query}[/bold]")
+        ctx = gather_research(query, max_results, do_news=True)
+        deep_sections.append(f"### {query}\n{ctx}")
+
+    # Phase 6 — synthesize everything into one cohesive report
+    console.print("\n[bold magenta]▸ Fase 6/7[/bold magenta] — sintetizando relatório")
+    material = (
+        f"TÓPICO: {topic}\n\n=== RESUMO GERAL ===\n{abstract}\n\n"
+        f"=== APROFUNDAMENTO ===\n" + "\n\n".join(deep_sections)
+    )
+    report = _llm_text(
+        model, _SYNTH_SYS,
+        f"Material completo de pesquisa:\n\n{material}",
+        "Sintetizando",
+    )
+    console.print("[bold green]🔬 Pesquisa Profunda — Júnior:[/bold green]")
+    console.print(Markdown(report))
+    console.print()
+
+    # Phase 7 — relevant images to close it off
+    console.print("\n[bold magenta]▸ Fase 7/7[/bold magenta] — imagens relevantes")
+    img_raw = _llm_text(
+        model, _IMG_QUERIES_SYS,
+        f"Tópico: {topic}\nSubtópicos: {', '.join(subtopics)}",
+        "Escolhendo imagens",
+    )
+    img_queries = _parse_list(img_raw, 3) or [topic]
+    for q in img_queries:
+        q = _anchor_query(topic, q)
+        console.print(f"[bold yellow]🖼️   Buscando imagens:[/bold yellow] [cyan]{q}[/cyan]")
+        imgs = image_search(q, max_results=max_results)
+        console.print(f"[dim]{len(imgs)} imagem(ns)[/dim]")
+        display_images(imgs)
+
+    console.print()
+    return report
+
+
 # ── Main chat loop ────────────────────────────────────────────────────────────
 
 def chat(model: str, max_results: int) -> None:
@@ -630,6 +858,20 @@ def chat(model: str, max_results: int) -> None:
             console.print("[bold magenta]⚡ Megabrain ativado.[/bold magenta]")
             messages.append({"role": "assistant", "content": "Megabrain ativado."})
 
+        # Deep research trigger — multi-phase autonomous research pipeline
+        if DEEP_RESEARCH_RE.search(user_input):
+            request = _deep_topic(user_input)
+            if not request:
+                console.print("[yellow]Sobre o que devo pesquisar? Inclua um tópico junto de 'pesquisa profunda'.[/yellow]\n")
+                _prompt_gate.set()
+                continue
+            _prompt_gate.set()  # keep input active so the timer renders above it
+            report = run_deep_research(request, active_model, max_results)
+            messages.append({"role": "user", "content": user_input})
+            messages.append({"role": "assistant", "content": report})
+            _prompt_gate.set()
+            continue
+
         # Pre-search any [bracketed] terms before sending to the model
         clean_input, search_context = pre_search_brackets(user_input, max_results)
 
@@ -709,7 +951,8 @@ def chat(model: str, max_results: int) -> None:
                 # Plain answer — done
                 messages.append({"role": "assistant", "content": assistant_text})
                 clean_response = strip_think(assistant_text)
-                console.print(Panel(clean_response, title="[bold green]Júnior[/bold green]", border_style="green"))
+                console.print("[bold green]Júnior:[/bold green]")
+                console.print(Markdown(clean_response))
                 console.print()
                 break
         else:
