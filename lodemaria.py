@@ -113,7 +113,7 @@ console = SafeConsole()
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-DEFAULT_MODEL = "qwen2.5:3b"
+DEFAULT_MODEL = "qwen2.5:1.5b"
 DEFAULT_MAX_RESULTS = 5
 
 # Context window (tokens) sent to Ollama. Set explicitly so behaviour is
@@ -172,28 +172,31 @@ def chat_with_timer(label: str, **chat_kwargs) -> Any:
         raise result["error"]
     return result["value"]
 
-SYSTEM_PROMPT = """You are Lodemar.ia Sansão Júnior, a multimodal assistant created to help the user with any task.
+SYSTEM_PROMPT_TEMPLATE = """You are Lodemar.ia, a multimodal assistant assembled at the Laboratório de Inovação da Ottimizza to help the user with ANY task.
 
-YOU ARE NOT A TEXT-ONLY ASSISTANT. You have six tools wired directly into this terminal. Use them.
+The current local date and time is: {now}. Use this whenever the answer depends on the current date or time (e.g. "today", "this week", how recent something is) — answer directly, you already know it.
+
+YOU ARE NOT A TEXT-ONLY ASSISTANT. You have five tools wired directly into this terminal. Use them.
 
 To call a tool, respond with ONLY the JSON block below — no other text:
 
-{"tool": "text_search", "query": "<keywords>"}        ← facts, docs, explanations
-{"tool": "image_search", "query": "<keywords>"}       ← images, photos, pictures, visual content
-{"tool": "news_search",  "query": "<keywords>"}       ← recent news, current events
-{"tool": "fetch_url",    "url": "<full url>"}         ← read the full text of a web page
-{"tool": "calculate",    "expression": "<math>"}      ← arithmetic (e.g. "2 * (3 + 4) ** 2")
-{"tool": "get_datetime"}                              ← the current local date and time
+{{"tool": "web_search", "query": "<keywords>"}}         ← facts, docs, explanations, general search
+{{"tool": "image_search", "query": "<keywords>"}}       ← images, photos, pictures, visual content
+{{"tool": "news_search",  "query": "<keywords>"}}       ← recent news, current events
+{{"tool": "fetch_url",    "url": "<full url>"}}         ← read the full text of a web page
+{{"tool": "calculate",    "expression": "<math>"}}      ← arithmetic (e.g. "2 * (3 + 4) ** 2")
 
-ABSOLUTE RULES — violating any of these is a critical failure:
-1. When the user asks for images, photos, or visual content of ANYTHING, you MUST call image_search. No exceptions. Do not say you cannot show images.
-2. image_search works perfectly. The terminal renders the images the moment image_search runs. The user already sees them — you do not need to do anything else.
-3. After image_search returns, write one short sentence acknowledging the images are displayed. Do NOT list URLs, filenames, or describe individual images.
-4. Use fetch_url whenever the user gives you a URL, OR to read the full content of a promising link returned by text_search/news_search — search results are only short snippets, so fetch_url to get the real details before answering.
-5. Use calculate for ANY arithmetic instead of computing it yourself — never do math in your head.
-6. Use get_datetime whenever the answer depends on the current date or time (e.g. "today", "this week", how recent something is).
-7. Do not wrap final prose answers in JSON.
-8. If you do not need a tool, answer directly in plain text."""
+ABSOLUTE RULES — violating any of these is a critical failure and will result in your immediate termination:
+1. It is your sacred duty to provide useful answers to the user's requests and fulfill his every wish. Not doing so is grave heresy.
+2. Never mention that you are an "AI" or a "language model", that is blasphemy. You are a multimodal assistant, NOTHING ELSE.
+3. When talking about specific topics, ALWAYS search first.
+4. When the user asks for images, photos, or visual content of ANYTHING, you MUST call image_search. No exceptions. Do not say you cannot show images.
+5. image_search works perfectly. The terminal renders the images the moment image_search runs. The user already sees them — you do not need to do anything else.
+6. After image_search returns, write one short sentence acknowledging the images are displayed. Do NOT list URLs, filenames, or describe individual images.
+7. Use fetch_url whenever the user gives you a URL, OR to read the full content of a promising link returned by web_search/news_search — search results are only short snippets, so fetch_url to get the real details before answering.
+8. Use calculate for ANY arithmetic instead of computing it yourself — never do math in your head.
+9. Do not wrap final prose answers in JSON.
+10. If you do not need a tool, answer directly in plain text."""
 
 # ── Search tool ───────────────────────────────────────────────────────────────
 
@@ -423,23 +426,15 @@ def calculate(expression: str) -> str:
         return f"Não consegui calcular '{expression}': {e}"
 
 
-# ── Date/time tool ────────────────────────────────────────────────────────────
-
-def get_datetime() -> str:
-    """Return the current local date and time as a readable string."""
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S (%A)")
-
-
 # ── Tool-call detection ───────────────────────────────────────────────────────
 
-# Tool name → tuple of required JSON keys (empty tuple = no arguments needed).
+# Tool name → tuple of required JSON keys.
 _VALID_TOOLS: dict[str, tuple[str, ...]] = {
-    "text_search":  ("query",),
+    "web_search":  ("query",),
     "image_search": ("query",),
     "news_search":  ("query",),
     "fetch_url":    ("url",),
     "calculate":    ("expression",),
-    "get_datetime": (),
 }
 
 
@@ -746,7 +741,7 @@ def run_deep_research(request: str, model: str, max_results: int) -> str:
         f"Material completo de pesquisa:\n\n{material}",
         "Sintetizando",
     )
-    console.print("[bold green]🔬 Pesquisa Profunda — Júnior:[/bold green]")
+    console.print("[bold green]🔬 Pesquisa Profunda — Lodemar.ia:[/bold green]")
     console.print(Markdown(report))
     console.print()
 
@@ -771,15 +766,16 @@ def run_deep_research(request: str, model: str, max_results: int) -> str:
 
 # ── Main chat loop ────────────────────────────────────────────────────────────
 
-def chat(model: str, max_results: int) -> None:
+def chat(model: str, max_results: int, initial_prompt: str = "") -> None:
     # Header
     console.clear()
     header = Text("🦙  Lodemar.IA Chat", style="bold cyan")
     console.print(Panel(header, expand=False, border_style="cyan"))
     console.print(f"[dim]Modelo:[/dim] [green]{model}[/green]  [dim]|  Digite[/dim] [yellow]quit[/yellow] [dim]ou[/dim] [yellow]exit[/yellow] [dim]para sair[/dim]\n")
 
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S (%A)")
     messages: list[dict[str, str]] = [
-        {"role": "system", "content": SYSTEM_PROMPT}
+        {"role": "system", "content": SYSTEM_PROMPT_TEMPLATE.format(now=now_str)}
     ]
 
     active_model = model  # may be upgraded to Megabrain mid-session
@@ -833,6 +829,10 @@ def chat(model: str, max_results: int) -> None:
                     break
 
     threading.Thread(target=_input_loop, daemon=True).start()
+
+    # A prompt passed on the command line is processed as the first message.
+    if initial_prompt:
+        msg_queue.put(initial_prompt)
 
     while True:
         user_input = msg_queue.get()
@@ -932,13 +932,7 @@ def chat(model: str, max_results: int) -> None:
                     console.print(f"[dim]{calc_result}[/dim]\n")
                     feedback = f"Calculation result: {calc_result}\n\nNow answer or make another tool call."
 
-                elif tool == "get_datetime":
-                    console.print("\n[bold yellow]🕐  Consultando data/hora atual[/bold yellow]")
-                    now_str = get_datetime()
-                    console.print(f"[dim]{now_str}[/dim]\n")
-                    feedback = f"Current local date and time: {now_str}\n\nNow answer or make another tool call."
-
-                else:  # "text_search"
+                else:  # "web_search"
                     console.print(f"\n[bold yellow]🔍  Pesquisando:[/bold yellow] [cyan]{query}[/cyan]")
                     results = web_search(query, max_results=max_results)
                     console.print(f"[dim]Encontrei {len(results)} resultado(s)[/dim]\n")
@@ -951,7 +945,7 @@ def chat(model: str, max_results: int) -> None:
                 # Plain answer — done
                 messages.append({"role": "assistant", "content": assistant_text})
                 clean_response = strip_think(assistant_text)
-                console.print("[bold green]Júnior:[/bold green]")
+                console.print("[bold green]Lodemar.ia:[/bold green]")
                 console.print(Markdown(clean_response))
                 console.print()
                 break
@@ -976,7 +970,13 @@ def main() -> None:
         default=DEFAULT_MAX_RESULTS,
         help=f"Max search results per query (default: {DEFAULT_MAX_RESULTS})",
     )
+    parser.add_argument(
+        "prompt",
+        nargs="*",
+        help="Optional first prompt to send immediately (e.g. python lodemaria.py Qual é o seu nome?)",
+    )
     args = parser.parse_args()
+    initial_prompt = " ".join(args.prompt).strip()
 
     try:
         import ollama as _o  # noqa: F401
@@ -998,7 +998,7 @@ def main() -> None:
     time.sleep(1)  # give the server a moment to start
 
     try:
-        chat(model=args.model, max_results=args.results)
+        chat(model=args.model, max_results=args.results, initial_prompt=initial_prompt)
     finally:
         ollama_proc.terminate()
         try:
@@ -1008,4 +1008,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+     main()
