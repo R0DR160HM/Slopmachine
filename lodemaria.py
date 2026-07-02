@@ -113,7 +113,7 @@ console = SafeConsole()
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-DEFAULT_MODEL = "qwen2.5:1.5b"
+DEFAULT_MODEL = "qwen2.5:0.5b"
 DEFAULT_MAX_RESULTS = 5
 
 # Context window (tokens) sent to Ollama. Set explicitly so behaviour is
@@ -176,13 +176,12 @@ SYSTEM_PROMPT_TEMPLATE = """You are Lodemar.ia, a multimodal assistant assembled
 
 The current local date and time is: {now}. Use this whenever the answer depends on the current date or time (e.g. "today", "this week", how recent something is) — answer directly, you already know it.
 
-YOU ARE NOT A TEXT-ONLY ASSISTANT. You have five tools wired directly into this terminal. Use them.
+YOU ARE NOT A TEXT-ONLY ASSISTANT. You have four tools wired directly into this terminal. Use them.
 
 To call a tool, respond with ONLY the JSON block below — no other text:
 
 {{"tool": "web_search", "query": "<keywords>"}}         ← facts, docs, explanations, general search
 {{"tool": "image_search", "query": "<keywords>"}}       ← images, photos, pictures, visual content
-{{"tool": "news_search",  "query": "<keywords>"}}       ← recent news, current events
 {{"tool": "fetch_url",    "url": "<full url>"}}         ← read the full text of a web page
 {{"tool": "calculate",    "expression": "<math>"}}      ← arithmetic (e.g. "2 * (3 + 4) ** 2")
 
@@ -197,6 +196,8 @@ ABSOLUTE RULES — violating any of these is a critical failure and will result 
 8. Use calculate for ANY arithmetic instead of computing it yourself — never do math in your head.
 9. Do not wrap final prose answers in JSON.
 10. If you do not need a tool, answer directly in plain text."""
+# {{"tool": "news_search",  "query": "<keywords>"}}       ← recent news, current events
+
 
 # ── Search tool ───────────────────────────────────────────────────────────────
 
@@ -556,7 +557,8 @@ DEEP_FETCH_TOP = 2          # top links to fetch full text from per research pas
 
 def _deep_topic(user_input: str) -> str:
     """Strip the trigger phrase (and stray brackets) to get the research topic."""
-    topic = DEEP_RESEARCH_RE.sub(" ", user_input)
+    # topic = DEEP_RESEARCH_RE.sub(" ", user_input)
+    topic = user_input
     topic = topic.replace("[", "").replace("]", "")
     return topic.strip(" :–—-,.\t\n")
 
@@ -596,19 +598,20 @@ def _parse_list(text: str, limit: int) -> list[str]:
     return lines[:limit]
 
 
-def _anchor_query(topic: str, sub: str) -> str:
-    """Guarantee a subtopic query stays tied to the main topic.
+def _focus_query(keywords: str, sub: str) -> str:
+    """Force the main-object keywords into every search query.
 
-    If the subtopic doesn't already mention the topic's key words, prepend the
-    topic so searches never drift into broad, unrelated territory.
+    `keywords` is the specific object of the research (e.g. a game's name).
+    Unless the query already contains that exact phrase, we prepend it — so
+    searches never drift to generic pages like a wiki's global "Characters"
+    list when the user actually wanted a specific game's characters.
     """
-    topic, sub = topic.strip(), sub.strip()
-    # Consider the topic "present" if a significant word from it appears in sub.
-    sub_low = sub.lower()
-    key_words = [w for w in re.findall(r"\w+", topic.lower()) if len(w) > 3]
-    if any(w in sub_low for w in key_words):
+    keywords, sub = keywords.strip(), sub.strip()
+    if not keywords:
         return sub
-    return f"{topic}: {sub}"
+    if keywords.lower() in sub.lower():
+        return sub
+    return f"{keywords} {sub}"
 
 
 def gather_research(query: str, max_results: int, do_news: bool = True) -> str:
@@ -648,6 +651,17 @@ _QUERY_SYS = (
     "mensagem dele, identifique o tópico central e formule UMA consulta de busca "
     "concisa e eficaz (poucas palavras-chave) para iniciar a pesquisa. Responda "
     "APENAS com a consulta de busca, em uma única linha, sem aspas nem preâmbulo."
+)
+_KEYWORDS_SYS = (
+    "Você é Lodemar.ia. A partir da mensagem do usuário, extraia de 2 a 3 "
+    "palavras-chave que definem o OBJETO PRINCIPAL e ESPECÍFICO da pesquisa — "
+    "o nome próprio do jogo, obra, produto, pessoa ou entidade em questão. "
+    "Essas palavras serão incluídas em TODAS as buscas para mantê-las focadas "
+    "nesse objeto. Priorize nomes próprios e termos específicos; IGNORE palavras "
+    "genéricas como 'lore', 'história', 'personagens', 'informações', 'sobre'. "
+    "Responda APENAS com um array JSON de 2 a 3 strings curtas, sem outro texto. "
+    'Exemplos: para "a lore do jogo Hollow Knight" → ["Hollow Knight"]; '
+    'para "história da Segunda Guerra Mundial" → ["Segunda Guerra Mundial"].'
 )
 _ABSTRACT_SYS = (
     "Você é Lodemar.ia. Com base no material de pesquisa fornecido, escreva um "
@@ -695,6 +709,18 @@ def run_deep_research(request: str, model: str, max_results: int) -> str:
     ).splitlines()[0].strip().strip('"').strip() or request
     console.print(f"[dim]Consulta de busca:[/dim] [cyan]{topic}[/cyan]")
 
+    # Extract the 2-3 keywords that define the main object of the search. These
+    # are forced into every subtopic and image query so the research never
+    # drifts to generic pages (e.g. a wiki's global "Characters" list).
+    kw_raw = _llm_text(
+        model, _KEYWORDS_SYS,
+        f"Mensagem do usuário: {request}",
+        "Extraindo palavras-chave",
+    )
+    keywords_list = _parse_list(kw_raw, 3)
+    keywords = " ".join(keywords_list).strip() or topic
+    console.print(f"[dim]Palavras-chave centrais:[/dim] [bold cyan]{keywords}[/bold cyan]")
+
     # Phase 2 — general research on the topic
     console.print("\n[bold magenta]▸ Fase 2/7[/bold magenta] — pesquisa geral")
     overview = gather_research(topic, max_results, do_news=True)
@@ -713,7 +739,8 @@ def run_deep_research(request: str, model: str, max_results: int) -> str:
     console.print("\n[bold magenta]▸ Fase 4/7[/bold magenta] — definindo subtópicos")
     subtopics_raw = _llm_text(
         model, _SUBTOPICS_SYS,
-        f"Tópico: {topic}\n\nResumo:\n{abstract}",
+        f"Tópico: {topic}\n\nPalavras-chave centrais (inclua em CADA subtópico): "
+        f"{keywords}\n\nResumo:\n{abstract}",
         "Planejando",
     )
     subtopics = _parse_list(subtopics_raw, DEEP_SUBTOPICS)
@@ -725,7 +752,7 @@ def run_deep_research(request: str, model: str, max_results: int) -> str:
     console.print("\n[bold magenta]▸ Fase 5/7[/bold magenta] — aprofundando cada subtópico")
     deep_sections: list[str] = []
     for i, sub in enumerate(subtopics, 1):
-        query = _anchor_query(topic, sub)
+        query = _focus_query(keywords, sub)
         console.print(f"\n[bold]({i}/{len(subtopics)}) {query}[/bold]")
         ctx = gather_research(query, max_results, do_news=True)
         deep_sections.append(f"### {query}\n{ctx}")
@@ -754,7 +781,7 @@ def run_deep_research(request: str, model: str, max_results: int) -> str:
     )
     img_queries = _parse_list(img_raw, 3) or [topic]
     for q in img_queries:
-        q = _anchor_query(topic, q)
+        q = _focus_query(keywords, q)
         console.print(f"[bold yellow]🖼️   Buscando imagens:[/bold yellow] [cyan]{q}[/cyan]")
         imgs = image_search(q, max_results=max_results)
         console.print(f"[dim]{len(imgs)} imagem(ns)[/dim]")
