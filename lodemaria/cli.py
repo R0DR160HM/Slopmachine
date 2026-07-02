@@ -11,10 +11,21 @@ import sys
 import time
 from importlib.util import find_spec
 
-from lodemaria.config import DEFAULT_MAX_RESULTS, DEFAULT_MODEL
+from lodemaria.config import (
+    DEFAULT_MAX_RESULTS,
+    DEFAULT_MODEL,
+    FORGE_MODEL,
+    MEGABRAIN_MODEL,
+)
 
 REQUIRED_PACKAGES = ("ollama", "ddgs", "rich")
 SERVER_STARTUP_SECONDS = 1
+SERVER_LIST_RETRIES = 10  # polls (0.5s apart) while waiting for the server
+
+OLLAMA_INSTALL_HINT = (
+    "❌  Ollama não encontrado — instale rodando no PowerShell como administrador:\n"
+    "    irm https://ollama.com/install.ps1 | iex"
+)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -67,9 +78,49 @@ def _start_ollama_server() -> subprocess.Popen:
             stderr=subprocess.DEVNULL,
         )
     except FileNotFoundError:
-        sys.exit("❌  'ollama' executable not found — install it from https://ollama.com")
+        sys.exit(OLLAMA_INSTALL_HINT)
     time.sleep(SERVER_STARTUP_SECONDS)  # give the server a moment to start
     return proc
+
+
+def _installed_models() -> set[str]:
+    """Return the tags already pulled, waiting for the server if needed."""
+    import ollama
+
+    for attempt in range(SERVER_LIST_RETRIES):
+        try:
+            listing = ollama.list()
+        except Exception:
+            time.sleep(0.5)
+            continue
+        return {
+            _canonical(name)
+            for m in getattr(listing, "models", None) or []
+            if (name := getattr(m, "model", None) or getattr(m, "name", None))
+        }
+    sys.exit("❌  O servidor do Ollama não respondeu — tente novamente.")
+
+
+def _canonical(name: str) -> str:
+    """Ollama treats a tagless name as ':latest'; compare accordingly."""
+    return name if ":" in name else f"{name}:latest"
+
+
+def _ensure_models(chat_model: str) -> None:
+    """Pull any model the app needs (chat, megabrain, forge) that is missing.
+
+    `ollama pull` runs attached to the terminal so its own progress bar is
+    visible during the download.
+    """
+    installed = _installed_models()
+    needed = dict.fromkeys((chat_model, MEGABRAIN_MODEL, FORGE_MODEL))
+    for model in needed:
+        if _canonical(model) in installed:
+            continue
+        print(f"⬇️  Modelo '{model}' não encontrado localmente — baixando...")
+        result = subprocess.run(["ollama", "pull", model])
+        if result.returncode != 0:
+            sys.exit(f"❌  Falha ao baixar o modelo '{model}'.")
 
 
 def _unload_models() -> None:
@@ -110,6 +161,7 @@ def main() -> None:
 
     ollama_proc = _start_ollama_server()
     try:
+        _ensure_models(args.model)
         with raw_input_mode():
             session = ChatSession(model=args.model, max_results=args.results)
             session.run(initial_prompt=" ".join(args.prompt).strip())
