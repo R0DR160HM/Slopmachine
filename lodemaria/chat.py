@@ -14,8 +14,8 @@ from lodemaria.config import (
     OLLAMA_OPTIONS,
     THINKING_LABELS,
 )
-from lodemaria.llm import Message, strip_think, trim_messages
-from lodemaria.prompts import SYSTEM_PROMPT_TEMPLATE
+from lodemaria.llm import Message, ask, strip_think, trim_messages
+from lodemaria.prompts import MEGABRAIN_REWRITE_SYS, SYSTEM_PROMPT_TEMPLATE
 from lodemaria.research import DEEP_RESEARCH_RE, extract_topic, run_deep_research
 from lodemaria.streaming import stream_markdown
 from lodemaria.terminal import InputReader, console, prompt_area
@@ -135,9 +135,10 @@ class ChatSession:
 
     def _handle_message(self, user_input: str) -> None:
         if MEGABRAIN_RE.search(user_input):
-            self.model = MEGABRAIN_MODEL
-            console.print("[bold magenta]⚡ Megabrain ativado.[/bold magenta]")
-            self.messages.append({"role": "assistant", "content": "Megabrain ativado."})
+            user_input = self._activate_megabrain(user_input)
+            if not user_input:
+                self.reader.allow()
+                return
 
         # Deep research trigger — multi-phase autonomous research pipeline
         if DEEP_RESEARCH_RE.search(user_input):
@@ -169,6 +170,33 @@ class ChatSession:
 
         self.messages.append({"role": "user", "content": content})
         self._agent_loop()
+
+    def _activate_megabrain(self, user_input: str) -> str:
+        """Switch to the Megabrain model and rewrite the prompt in a more
+        structured form (Megabrain mentions removed) before the agent sees it.
+
+        Returns the rewritten prompt, or "" when the message contained nothing
+        beyond the Megabrain trigger itself.
+        """
+        self.model = MEGABRAIN_MODEL
+        console.print("[bold magenta]⚡ Megabrain ativado.[/bold magenta]")
+
+        # Only used to detect an empty message and as a last-resort fallback;
+        # the rewriter gets the ORIGINAL text so it can drop the whole
+        # surrounding expression (e.g. "Com o mega brain ativo, ...") instead
+        # of us leaving a broken sentence behind.
+        stripped = MEGABRAIN_RE.sub("", user_input).strip(" \t,.;:!?-")
+        if not stripped:
+            self.messages.append({"role": "assistant", "content": "Megabrain ativado."})
+            return ""
+
+        rewritten = ask(
+            MEGABRAIN_MODEL, MEGABRAIN_REWRITE_SYS, user_input, "Estruturando o prompt"
+        ) or stripped
+        console.print(
+            Panel(Markdown(rewritten), title="Prompt reestruturado", border_style="magenta")
+        )
+        return rewritten
 
     def _agent_loop(self) -> None:
         """Let the model call tools until it produces a final plain-text answer."""

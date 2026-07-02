@@ -27,6 +27,12 @@ from lodemaria.tools import (
 
 DEEP_RESEARCH_RE = re.compile(r"deep\s*research|pesquisa\s+profunda", re.IGNORECASE)
 
+# Drops the qualifier from the trigger expression ("pesquisa profunda" →
+# "pesquisa", "deep research" → "research") so it doesn't pollute the topic
+# and the search queries derived from it. Only touches the trigger phrase —
+# a topic like "deep learning" keeps its "deep".
+_DEEP_QUALIFIER_RE = re.compile(r"(pesquisa)\s+profunda|deep\s*(research)", re.IGNORECASE)
+
 
 def _ask_streamed(model: str, system: str, user: str, label: str) -> str:
     """One-shot model call rendered live as it streams; returns cleaned text.
@@ -49,6 +55,7 @@ def _ask_streamed(model: str, system: str, user: str, label: str) -> str:
 def extract_topic(user_input: str) -> str:
     """Clean up the user's message (stray brackets etc.) to get the topic."""
     topic = user_input.replace("[", "").replace("]", "")
+    topic = _DEEP_QUALIFIER_RE.sub(lambda m: m.group(1) or m.group(2), topic)
     return topic.strip(" :–—-,.\t\n")
 
 
@@ -106,36 +113,29 @@ def run_deep_research(request: str, model: str, max_results: int) -> str:
         border_style="magenta", expand=False,
     ))
 
-    # Phase 1 — let the model decide what to search for, from the user's request
+    # Phase 1 — extract the 2-3 keywords that define the main object of the
+    # research. They ARE the search: the general search runs on them directly,
+    # and they are forced into every subtopic and image query so the research
+    # never drifts to generic pages (e.g. a wiki's global "Characters" list).
     console.print("\n[bold magenta]▸ Fase 1/7[/bold magenta] — interpretando o pedido")
-    topic = ask(
-        model, prompts.QUERY_SYS,
-        f"Mensagem do usuário: {request}",
-        "Interpretando",
-    ).splitlines()[0].strip().strip('"').strip() or request
-    console.print(f"[dim]Consulta de busca:[/dim] [cyan]{topic}[/cyan]")
-
-    # Extract the 2-3 keywords that define the main object of the search. These
-    # are forced into every subtopic and image query so the research never
-    # drifts to generic pages (e.g. a wiki's global "Characters" list).
     kw_raw = ask(
         model, prompts.KEYWORDS_SYS,
         f"Mensagem do usuário: {request}",
         "Extraindo palavras-chave",
     )
-    keywords = " ".join(parse_list(kw_raw, 3)).strip() or topic
+    keywords = " ".join(parse_list(kw_raw, 3)).strip() or request
     console.print(f"[dim]Palavras-chave centrais:[/dim] [bold cyan]{keywords}[/bold cyan]")
 
-    # Phase 2 — general research on the topic
+    # Phase 2 — general research based on the keywords
     console.print("\n[bold magenta]▸ Fase 2/7[/bold magenta] — pesquisa geral")
-    overview = gather_research(topic, max_results, do_news=True)
+    overview = gather_research(keywords, max_results, do_news=True)
 
     # Phase 3 — write an abstract from the overview
     console.print("\n[bold magenta]▸ Fase 3/7[/bold magenta] — redigindo resumo")
     console.print("[bold cyan]Resumo:[/bold cyan]")
     abstract = _ask_streamed(
         model, prompts.ABSTRACT_SYS,
-        f"Tópico: {topic}\n\nMaterial de pesquisa:\n{overview}",
+        f"Tópico: {keywords}\n\nMaterial de pesquisa:\n{overview}",
         "Resumindo",
     )
     console.print(Markdown(abstract))
@@ -144,11 +144,11 @@ def run_deep_research(request: str, model: str, max_results: int) -> str:
     console.print("\n[bold magenta]▸ Fase 4/7[/bold magenta] — definindo subtópicos")
     subtopics_raw = ask(
         model, prompts.SUBTOPICS_SYS,
-        f"Tópico: {topic}\n\nPalavras-chave centrais (inclua em CADA subtópico): "
+        f"Tópico e palavras-chave centrais (inclua em CADA subtópico): "
         f"{keywords}\n\nResumo:\n{abstract}",
         "Planejando",
     )
-    subtopics = parse_list(subtopics_raw, DEEP_SUBTOPICS) or [topic]
+    subtopics = parse_list(subtopics_raw, DEEP_SUBTOPICS) or [keywords]
     console.print("[dim]Subtópicos:[/dim] " + ", ".join(f"[cyan]{s}[/cyan]" for s in subtopics))
 
     # Phase 5 — deep research on each subtopic
@@ -163,7 +163,7 @@ def run_deep_research(request: str, model: str, max_results: int) -> str:
     # Phase 6 — synthesize everything into one cohesive report
     console.print("\n[bold magenta]▸ Fase 6/7[/bold magenta] — sintetizando relatório")
     material = (
-        f"TÓPICO: {topic}\n\n=== RESUMO GERAL ===\n{abstract}\n\n"
+        f"TÓPICO: {keywords}\n\n=== RESUMO GERAL ===\n{abstract}\n\n"
         f"=== APROFUNDAMENTO ===\n" + "\n\n".join(deep_sections)
     )
     console.print("[bold green]🔬 Pesquisa Profunda — Lodemar.ia:[/bold green]")
@@ -179,10 +179,10 @@ def run_deep_research(request: str, model: str, max_results: int) -> str:
     console.print("\n[bold magenta]▸ Fase 7/7[/bold magenta] — imagens relevantes")
     img_raw = ask(
         model, prompts.IMG_QUERIES_SYS,
-        f"Tópico: {topic}\nSubtópicos: {', '.join(subtopics)}",
+        f"Tópico: {keywords}\nSubtópicos: {', '.join(subtopics)}",
         "Escolhendo imagens",
     )
-    for q in parse_list(img_raw, 3) or [topic]:
+    for q in parse_list(img_raw, 3) or [keywords]:
         q = _focus_query(keywords, q)
         console.print(f"[bold yellow]🖼️   Buscando imagens:[/bold yellow] [cyan]{q}[/cyan]")
         imgs = image_search(q, max_results=max_results)

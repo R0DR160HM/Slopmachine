@@ -52,20 +52,32 @@ Hard rules:
 - Never use input(), infinite loops, threads, subprocess, or delete/overwrite files."""
 
 
-# ── Deep-research phase prompts (assistant answers in Portuguese) ─────────────
+# ── Megabrain: rewrites the user's prompt before it reaches the agent ─────────
 
-QUERY_SYS = (
-    "Você é Lodemar.ia. O usuário pediu uma pesquisa profunda. A partir da "
-    "mensagem dele, identifique o tópico central e formule UMA consulta de busca "
-    "concisa e eficaz (poucas palavras-chave) para iniciar a pesquisa. Responda "
-    "APENAS com a consulta de busca, em uma única linha, sem aspas nem preâmbulo."
+MEGABRAIN_REWRITE_SYS = (
+    "Você é um reescritor de prompts. Reescreva a mensagem do usuário como um "
+    "prompt claro e bem estruturado para um assistente de IA: explicite o "
+    "objetivo, o contexto relevante e o formato esperado da resposta, quando "
+    "for possível inferi-los da mensagem. REGRAS OBRIGATÓRIAS: (1) preserve "
+    "fielmente a intenção, os detalhes e o idioma originais — não invente "
+    "requisitos novos; (2) remova QUALQUER menção a 'megabrain' — elimine a "
+    "expressão ou oração inteira que o cita (ex.: 'com o mega brain ativo, "
+    "faça X' vira apenas 'faça X'), nunca deixe uma frase quebrada; (3) se a "
+    "mensagem contiver os termos 'pesquisa profunda' ou 'deep research', "
+    "mantenha-os LITERALMENTE no prompt reescrito — NUNCA os remova, traduza "
+    "ou parafraseie; (4) responda APENAS com o prompt reescrito, sem "
+    "preâmbulo, comentários ou aspas."
 )
 
+
+# ── Deep-research phase prompts (assistant answers in Portuguese) ─────────────
+
 KEYWORDS_SYS = (
-    "Você é Lodemar.ia. A partir da mensagem do usuário, extraia de 2 a 3 "
+    "Você é Lodemar.ia. O usuário pediu uma pesquisa profunda. A partir da "
+    "mensagem dele, extraia de 2 a 3 "
     "palavras-chave que definem o OBJETO PRINCIPAL e ESPECÍFICO da pesquisa — "
     "o nome próprio do jogo, obra, produto, pessoa ou entidade em questão. "
-    "Essas palavras serão incluídas em TODAS as buscas para mantê-las focadas "
+    "Essas palavras serão a base de TODAS as buscas, mantendo-as focadas "
     "nesse objeto. Priorize nomes próprios e termos específicos; IGNORE palavras "
     "genéricas como 'lore', 'história', 'personagens', 'informações', 'sobre'. "
     "Responda APENAS com um array JSON de 2 a 3 strings curtas, sem outro texto. "
