@@ -1,0 +1,8 @@
+ollama
+ddgs
+rich
+
+# Optional: terminal image rendering for image_search
+pillow
+# Optional: better HTML text extraction for fetch_url
+beautifulsoup4
