@@ -242,6 +242,10 @@ class InputReader:
             ch = read_char()
             if ch is None:
                 continue
+            if ch == "":  # EOF: stdin closed or not a tty (POSIX read returns "")
+                self._area.deactivate()
+                self.lines.put(None)
+                return False
             if ch in ("\r", "\n"):
                 line = self._area.submit()
                 self.lines.put(line)

@@ -6,6 +6,7 @@ traceback.
 """
 
 import argparse
+import os
 import subprocess
 import sys
 import time
@@ -22,10 +23,17 @@ REQUIRED_PACKAGES = ("ollama", "ddgs", "rich")
 SERVER_STARTUP_SECONDS = 1
 SERVER_LIST_RETRIES = 10  # polls (0.5s apart) while waiting for the server
 
-OLLAMA_INSTALL_HINT = (
-    "❌  Ollama não encontrado — instale rodando no PowerShell como administrador:\n"
-    "    irm https://ollama.com/install.ps1 | iex"
-)
+def _ollama_install_hint() -> str:
+    """Install command for the current OS (PowerShell on Windows, else sh)."""
+    if os.name == "nt":
+        return (
+            "❌  Ollama não encontrado — instale rodando no PowerShell como administrador:\n"
+            "    irm https://ollama.com/install.ps1 | iex"
+        )
+    return (
+        "❌  Ollama não encontrado — instale rodando:\n"
+        "    curl -fsSL https://ollama.com/install.sh | sh"
+    )
 
 
 def _parse_args() -> argparse.Namespace:
@@ -78,7 +86,7 @@ def _start_ollama_server() -> subprocess.Popen:
             stderr=subprocess.DEVNULL,
         )
     except FileNotFoundError:
-        sys.exit(OLLAMA_INSTALL_HINT)
+        sys.exit(_ollama_install_hint())
     time.sleep(SERVER_STARTUP_SECONDS)  # give the server a moment to start
     return proc
 
