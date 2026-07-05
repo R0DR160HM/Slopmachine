@@ -7,6 +7,7 @@ traceback.
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -23,17 +24,31 @@ REQUIRED_PACKAGES = ("ollama", "ddgs", "rich")
 SERVER_STARTUP_SECONDS = 1
 SERVER_LIST_RETRIES = 10  # polls (0.5s apart) while waiting for the server
 
-def _ollama_install_hint() -> str:
-    """Install command for the current OS (PowerShell on Windows, else sh)."""
+def _ollama_install_command() -> list[str]:
+    """Official install command for the current OS (PowerShell on Windows, else sh)."""
     if os.name == "nt":
-        return (
-            "❌  Ollama não encontrado — instale rodando no PowerShell como administrador:\n"
-            "    irm https://ollama.com/install.ps1 | iex"
+        return ["powershell", "-Command", "irm https://ollama.com/install.ps1 | iex"]
+    return ["sh", "-c", "curl -fsSL https://ollama.com/install.sh | sh"]
+
+
+def _install_ollama() -> None:
+    """Install Ollama automatically using the official installer for this OS.
+
+    Runs the installer attached to the terminal so its progress is visible.
+    Exits with a friendly message if the installer tooling (curl/PowerShell)
+    is itself missing or the installation fails.
+    """
+    print("⬇️  Ollama não encontrado — instalando automaticamente...")
+    try:
+        result = subprocess.run(_ollama_install_command())
+    except FileNotFoundError:
+        sys.exit(
+            "❌  Não foi possível instalar o Ollama automaticamente "
+            "(curl/PowerShell indisponível).\n"
+            "    Instale manualmente em https://ollama.com/download e rode novamente."
         )
-    return (
-        "❌  Ollama não encontrado — instale rodando:\n"
-        "    curl -fsSL https://ollama.com/install.sh | sh"
-    )
+    if result.returncode != 0:
+        sys.exit("❌  Falha ao instalar o Ollama automaticamente.")
 
 
 def _parse_args() -> argparse.Namespace:
@@ -79,6 +94,8 @@ def _check_dependencies() -> None:
 
 
 def _start_ollama_server() -> subprocess.Popen:
+    if shutil.which("ollama") is None:
+        _install_ollama()
     try:
         proc = subprocess.Popen(
             ["ollama", "serve"],
@@ -86,7 +103,12 @@ def _start_ollama_server() -> subprocess.Popen:
             stderr=subprocess.DEVNULL,
         )
     except FileNotFoundError:
-        sys.exit(_ollama_install_hint())
+        # Just installed, but the new binary is not yet on this process's PATH
+        # (common on Windows, where PATH changes need a fresh terminal).
+        sys.exit(
+            "❌  Ollama foi instalado, mas ainda não está disponível nesta sessão.\n"
+            "    Reinicie o terminal e rode novamente."
+        )
     time.sleep(SERVER_STARTUP_SECONDS)  # give the server a moment to start
     return proc
 

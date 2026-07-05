@@ -55,52 +55,53 @@ Hard rules:
 # ── Megabrain: rewrites the user's prompt before it reaches the agent ─────────
 
 MEGABRAIN_REWRITE_SYS = (
-    "Você é um reescritor de prompts. Reescreva a mensagem do usuário como um "
-    "prompt claro e bem estruturado para um assistente de IA: explicite o "
-    "objetivo, o contexto relevante e o formato esperado da resposta, quando "
-    "for possível inferi-los da mensagem. REGRAS OBRIGATÓRIAS: (1) preserve "
-    "fielmente a intenção, os detalhes e o idioma originais — não invente "
-    "requisitos novos; (2) remova QUALQUER menção a 'megabrain' — elimine a "
-    "expressão ou oração inteira que o cita (ex.: 'com o mega brain ativo, "
-    "faça X' vira apenas 'faça X'), nunca deixe uma frase quebrada; (3) se a "
-    "mensagem contiver os termos 'pesquisa profunda' ou 'deep research', "
-    "mantenha-os LITERALMENTE no prompt reescrito — NUNCA os remova, traduza "
-    "ou parafraseie; (4) responda APENAS com o prompt reescrito, sem "
-    "preâmbulo, comentários ou aspas."
+    "You are a prompt rewriter. Rewrite the user's message as a clear, "
+    "well-structured prompt for an AI assistant: make the goal, relevant "
+    "context, and expected response format explicit whenever they can be "
+    "inferred from the message. MANDATORY RULES: (1) rewrite the prompt IN "
+    "ENGLISH, regardless of the original language, while faithfully preserving "
+    "the original intent and details — do not invent new requirements; "
+    "(2) remove ANY mention of 'megabrain' — strip the whole phrase or clause "
+    "that references it (e.g. 'with megabrain active, do X' becomes just "
+    "'do X'), never leave a broken sentence; (3) if the message contains the "
+    "terms 'pesquisa profunda' or 'deep research', keep them LITERALLY in the "
+    "rewritten prompt — NEVER remove, translate, or paraphrase them; "
+    "(4) respond ONLY with the rewritten prompt, no preamble, comments, or "
+    "quotes."
 )
 
 
 # ── Deep-research phase prompts (assistant answers in Portuguese) ─────────────
 
 KEYWORDS_SYS = (
-    "Você é Lodemar.ia. O usuário pediu uma pesquisa profunda. A partir da "
-    "mensagem dele, extraia de 2 a 3 "
-    "palavras-chave que definem o OBJETO PRINCIPAL e ESPECÍFICO da pesquisa — "
-    "o nome próprio do jogo, obra, produto, pessoa ou entidade em questão. "
-    "Essas palavras serão a base de TODAS as buscas, mantendo-as focadas "
-    "nesse objeto. Priorize nomes próprios e termos específicos; IGNORE palavras "
-    "genéricas como 'lore', 'história', 'personagens', 'informações', 'sobre'. "
-    "Responda APENAS com um array JSON de 2 a 3 strings curtas, sem outro texto. "
-    'Exemplos: para "a lore do jogo Hollow Knight" → ["Hollow Knight"]; '
-    'para "história da Segunda Guerra Mundial" → ["Segunda Guerra Mundial"].'
+    "You are Lodemar.ia. The user asked for a deep research. From their "
+    "message, extract 2 to 3 "
+    "keywords that define the MAIN and SPECIFIC OBJECT of the research — "
+    "the proper name of the game, work, product, person, or entity in question. "
+    "These words will be the basis of ALL searches, keeping them focused "
+    "on that object. Prioritize proper names and specific terms; IGNORE generic "
+    "words like 'lore', 'history', 'characters', 'information', 'about'. "
+    "Respond ONLY with a JSON array of 2 to 3 short strings, no other text. "
+    'Examples: for "the lore of the game Hollow Knight" → ["Hollow Knight"]; '
+    'for "history of World War II" → ["World War II"].'
 )
 
 ABSTRACT_SYS = (
-    "Você é Lodemar.ia. Com base no material de pesquisa fornecido, escreva um "
-    "resumo (abstract) conciso de 1 parágrafo sobre o tópico, em português. "
-    "Destaque os pontos centrais. Responda apenas com o resumo, sem preâmbulo."
+    "You are Lodemar.ia. Based on the provided research material, write a "
+    "concise 1-paragraph abstract about the topic, in English. "
+    "Highlight the central points. Respond only with the abstract, no preamble."
 )
 
 SUBTOPICS_SYS = (
-    "Você é Lodemar.ia. Com base no tópico e no resumo, proponha os "
-    f"{DEEP_SUBTOPICS} subtópicos mais relevantes e ESPECÍFICOS para aprofundar "
-    "a pesquisa. REGRAS OBRIGATÓRIAS: (1) cada subtópico deve estar DIRETAMENTE e "
-    "fortemente ligado ao tópico principal — nunca genérico, amplo ou tangencial; "
-    "(2) cada subtópico DEVE conter as palavras-chave do tópico principal, de modo "
-    "a funcionar como uma consulta de busca focada e autossuficiente. "
-    "Responda APENAS com um array JSON de strings curtas de busca, sem nenhum "
-    'outro texto. Exemplo, para o tópico "buracos negros": '
-    '["buracos negros radiação Hawking", "buracos negros horizonte de eventos"]'
+    "You are Lodemar.ia. Based on the topic and the abstract, propose the "
+    f"{DEEP_SUBTOPICS} most relevant and SPECIFIC subtopics to deepen "
+    "the research. MANDATORY RULES: (1) each subtopic must be DIRECTLY and "
+    "strongly tied to the main topic — never generic, broad, or tangential; "
+    "(2) each subtopic MUST contain the main topic's keywords, so it "
+    "works as a focused, self-sufficient search query. "
+    "Respond ONLY with a JSON array of short search strings, no "
+    'other text. Example, for the topic "black holes": '
+    '["black holes Hawking radiation", "black holes event horizon"]'
 )
 
 SYNTH_SYS = (
@@ -112,7 +113,7 @@ SYNTH_SYS = (
 )
 
 IMG_QUERIES_SYS = (
-    "Você é Lodemar.ia. Com base no tópico e nos subtópicos, sugira 3 buscas de "
-    "imagem curtas e visuais que ilustrem bem o assunto. Responda APENAS com um "
-    'array JSON de strings, sem outro texto. Exemplo: ["consulta 1", "consulta 2"]'
+    "You are Lodemar.ia. Based on the topic and the subtopics, suggest 3 short, "
+    "visual image searches that illustrate the subject well. Respond ONLY with a "
+    'JSON array of strings, no other text. Example: ["query 1", "query 2"]'
 )
