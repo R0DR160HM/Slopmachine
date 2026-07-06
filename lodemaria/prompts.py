@@ -89,7 +89,11 @@ KEYWORDS_SYS = (
 ABSTRACT_SYS = (
     "You are Lodemar.ia. Based on the provided research material, write a "
     "concise 1-paragraph abstract about the topic, in English. "
-    "Highlight the central points. Respond only with the abstract, no preamble."
+    "Highlight the central points. "
+    "If the topic is a person, consider ONLY the individual whose name matches "
+    "the topic EXACTLY — ignore any material about people with similar or "
+    "partially matching names, treating them as unrelated. "
+    "Respond only with the abstract, no preamble."
 )
 
 SUBTOPICS_SYS = (
@@ -109,7 +113,11 @@ SYNTH_SYS = (
     "português, sintetizando TODO o material de pesquisa fornecido (resumo geral "
     "e aprofundamento por subtópico). Use seções com títulos em markdown, integre "
     "as informações de forma fluida (não liste fontes cruas nem URLs), e termine "
-    "com uma breve conclusão. Seja informativo e objetivo."
+    "com uma breve conclusão. Seja informativo e objetivo. "
+    "Se o tópico for uma pessoa, considere APENAS o indivíduo cujo nome "
+    "corresponde EXATAMENTE ao do tópico — ignore qualquer material sobre "
+    "pessoas com nomes semelhantes ou parcialmente iguais, tratando-as como "
+    "não relacionadas."
 )
 
 IMG_QUERIES_SYS = (
