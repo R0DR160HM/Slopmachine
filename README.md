@@ -6,7 +6,7 @@ research e forja ferramentas novas em tempo de execução.
 ## Requisitos
 
 - [Ollama](https://ollama.com) instalado. Na inicialização o app verifica isso
-  e baixa automaticamente os modelos que faltarem (`qwen2.5:0.5b`, `qwen2.5:7b`
+  e baixa automaticamente os modelos que faltarem (`qwen2.5:1.5b`, `qwen2.5:7b`
   e `qwen2.5-coder:7b`).
 
   - **Windows** (PowerShell como administrador):

@@ -1,6 +1,6 @@
 """Static configuration shared across the application."""
 
-DEFAULT_MODEL = "qwen2.5:0.5b"
+DEFAULT_MODEL = "qwen2.5:1.5b"
 
 # Model activated when the user mentions "megabrain" in a message.
 MEGABRAIN_MODEL = "qwen2.5:7b"
