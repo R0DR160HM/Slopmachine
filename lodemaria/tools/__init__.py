@@ -2,6 +2,7 @@
 
 from lodemaria.tools.calculator import calculate
 from lodemaria.tools.display import display_images
+from lodemaria.tools.documentation import write_project_documentation
 from lodemaria.tools.registry import execute_tool_call, parse_tool_call
 from lodemaria.tools.search import (
     format_image_results,
@@ -25,4 +26,5 @@ __all__ = [
     "news_search",
     "parse_tool_call",
     "web_search",
+    "write_project_documentation",
 ]

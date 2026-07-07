@@ -10,6 +10,8 @@ would fight over the same rows); keystrokes typed meanwhile keep accumulating
 and reappear when the prompt is restored.
 """
 
+import math
+
 from rich.console import Group
 from rich.live import Live
 from rich.markdown import Markdown
@@ -17,6 +19,35 @@ from rich.text import Text
 
 from lodemaria.llm import stream_chat, visible_text
 from lodemaria.terminal import console, prompt_area
+
+
+def tail_view(text: str, width: int, max_rows: int) -> str:
+    """The trailing portion of `text` that fits in ~max_rows rendered rows.
+
+    A Live region cannot be taller than the terminal — rich truncates the
+    bottom with "…", hiding exactly the newest streamed tokens. So once the
+    content outgrows the screen we show a sliding window of its tail instead.
+    Wrapped rows are estimated from line length; a ``` fence cut open by the
+    crop is reopened so the visible tail still renders as markdown.
+    """
+    lines = text.splitlines()
+    rows = 0
+    start = len(lines)
+    while start > 0:
+        need = max(1, math.ceil(len(lines[start - 1]) / width))
+        if rows + need > max_rows:
+            break
+        rows += need
+        start -= 1
+    if start == 0:
+        return text
+    if start == len(lines):  # a single line taller than the window — keep it
+        start -= 1
+    tail = lines[start:]
+    dropped_fences = sum(1 for ln in lines[:start] if ln.lstrip().startswith("```"))
+    if dropped_fences % 2:
+        tail = ["```"] + tail
+    return "\n".join(tail)
 
 
 def stream_markdown(
@@ -53,7 +84,11 @@ def stream_markdown(
                     vertical_overflow="ellipsis",
                 )
                 live.start()
-            renderable = Markdown(visible)
+            # Keep the newest content on screen: crop to a tail that fits the
+            # terminal (with margin for the header and markdown block spacing).
+            width = max(console.size.width - 4, 20)
+            max_rows = max(console.size.height - (4 if header else 3), 4)
+            renderable = Markdown(tail_view(visible, width, max_rows))
             if header:
                 renderable = Group(Text.from_markup(header), renderable)
             live.update(renderable)
