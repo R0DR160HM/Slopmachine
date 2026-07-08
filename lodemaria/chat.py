@@ -5,6 +5,7 @@ import os
 import queue
 import re
 import signal
+from contextlib import contextmanager
 from datetime import datetime
 
 from rich.markdown import Markdown
@@ -151,6 +152,16 @@ class ChatSession:
         if self._streaming:
             raise KeyboardInterrupt
         self.reader.lines.put(INTERRUPT)
+
+    @contextmanager
+    def _generating(self):
+        """Mark a main-thread model operation so Ctrl+C aborts it instead of
+        queuing an INTERRUPT nobody reads until it finishes."""
+        self._streaming = True
+        try:
+            yield
+        finally:
+            self._streaming = False
 
     def _print_header(self) -> None:
         console.clear()
@@ -332,14 +343,12 @@ class ChatSession:
             self.reader.allow()  # keep input active so the timer renders above it
             if self._ensure_server:
                 self._ensure_server()  # best-effort before the long pipeline
-            self._streaming = True  # allow Ctrl+C to abort the pipeline
             try:
-                report = run_deep_research(request, self.model, self.max_results)
+                with self._generating():  # allow Ctrl+C to abort the pipeline
+                    report = run_deep_research(request, self.model, self.max_results)
             except Exception as e:
                 self._report_model_error(e)
                 return
-            finally:
-                self._streaming = False
             self.messages.append({"role": "user", "content": user_input})
             self.messages.append({"role": "assistant", "content": report})
             self.reader.allow()
@@ -363,7 +372,8 @@ class ChatSession:
         """Run the documentation writer and record its summary in the history."""
         console.print("\n[bold yellow]📚  Documentando o projeto...[/bold yellow]")
         try:
-            summary = write_project_documentation()
+            with self._generating():  # let Ctrl+C abort documentation generation
+                summary = write_project_documentation()
         except Exception as e:
             console.print(f"[red]Falha ao documentar o projeto: {e}[/red]\n")
             self.reader.allow()
@@ -393,9 +403,10 @@ class ChatSession:
             return ""
 
         try:
-            rewritten = ask(
-                MEGABRAIN_MODEL, MEGABRAIN_REWRITE_SYS, user_input, "Estruturando o prompt"
-            ) or stripped
+            with self._generating():
+                rewritten = ask(
+                    MEGABRAIN_MODEL, MEGABRAIN_REWRITE_SYS, user_input, "Estruturando o prompt"
+                ) or stripped
         except Exception:
             rewritten = stripped  # backend hiccup: fall back to the raw prompt
         console.print(
@@ -437,8 +448,7 @@ class ChatSession:
         """Stream one assistant turn, transparently (re)starting the Ollama
         server and retrying once if the backend connection drops."""
         def once() -> str:
-            self._streaming = True  # let Ctrl+C abort the in-flight generation
-            try:
+            with self._generating():  # let Ctrl+C abort the in-flight generation
                 return stream_markdown(
                     next(self.labels),
                     header="[bold green]Lodemar.ia:[/bold green]",
@@ -447,8 +457,6 @@ class ChatSession:
                     messages=trim_messages(self.messages),
                     options=OLLAMA_OPTIONS,
                 )
-            finally:
-                self._streaming = False
 
         try:
             return once()
