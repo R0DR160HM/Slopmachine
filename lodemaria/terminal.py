@@ -23,6 +23,11 @@ PROMPT = "\033[1;34mDigite: \033[0m"
 
 QUIT_COMMANDS = frozenset({"quit", "exit"})
 
+# Delivered on the input queue when the user presses Ctrl+C. Unlike None (EOF /
+# Ctrl+D, which always quits), this lets the chat loop decide what to do based on
+# what is focused — e.g. terminate the focused shell instead of the whole app.
+INTERRUPT = object()
+
 _IS_WINDOWS = os.name == "nt"
 
 if _IS_WINDOWS:
@@ -85,7 +90,8 @@ class PromptArea:
         self._buffer: list[str] = []
         self._active = False  # the reader is collecting a line
         self._suspended = False  # the area is temporarily hidden (live streaming)
-        self._status = ""
+        self._status = ""  # transient status (e.g. the "Pensando..." timer)
+        self._base_status = ""  # persistent status shown when no transient one is set
         self._nlines = 2
 
     @property
@@ -97,11 +103,13 @@ class PromptArea:
 
         When a status line is set (e.g. the live "Pensando..." timer), it is
         drawn just above the prompt; otherwise the prompt keeps its usual
-        single blank line above it.
+        single blank line above it. A transient status (the live timer) takes
+        precedence over the persistent base status (the shell routing hint).
         """
         buffer = "".join(self._buffer)
-        if self._status:
-            return f"\n{self._status}\n{PROMPT}{buffer}", 3
+        status = self._status or self._base_status
+        if status:
+            return f"\n{status}\n{PROMPT}{buffer}", 3
         return f"\n{PROMPT}{buffer}", 2
 
     def erase(self) -> None:
@@ -117,10 +125,22 @@ class PromptArea:
         sys.stdout.flush()
 
     def set_status(self, text: str) -> None:
-        """Update the live status line above the prompt, redrawing in place."""
+        """Update the live (transient) status line above the prompt, redrawing
+        in place. Clearing it (text="") reveals the base status again."""
         with self.lock:
             self._status = text
             if self.visible:
+                self.erase()
+                self.draw()
+
+    def set_base_status(self, text: str) -> None:
+        """Set the persistent status line shown whenever no transient status is
+        active (used for the running-shell routing hint). No-op if unchanged."""
+        with self.lock:
+            if text == self._base_status:
+                return
+            self._base_status = text
+            if self.visible and not self._status:
                 self.erase()
                 self.draw()
 
@@ -210,16 +230,18 @@ class SafeConsole(Console):
 class InputReader:
     """Reads user input character-by-character on a background thread.
 
-    Submitted lines are delivered through ``lines``; ``None`` signals
-    Ctrl+C/Ctrl+D. The prompt is only shown after ``allow()`` — the chat loop
-    calls it once it is ready for the next message. The thread stops after a
-    quit command or an interrupt.
+    Submitted lines are delivered through ``lines``. ``None`` signals EOF /
+    Ctrl+D (the app should quit); ``INTERRUPT`` signals Ctrl+C (the chat loop
+    decides what to do). The prompt is only shown after ``allow()`` — the chat
+    loop calls it once it is ready for the next message. The thread keeps running
+    across quit commands and interrupts; only a real EOF stops it, since the app
+    lifecycle is now owned by the chat loop.
     """
 
     def __init__(self, area: PromptArea) -> None:
         self._area = area
         self._gate = threading.Event()
-        self.lines: queue.Queue[str | None] = queue.Queue()
+        self.lines: queue.Queue = queue.Queue()
 
     def start(self) -> None:
         threading.Thread(target=self._run, daemon=True).start()
@@ -237,23 +259,29 @@ class InputReader:
                 return
 
     def _read_line(self) -> bool:
-        """Read one line; return False when the reader thread should stop."""
+        """Read one line; return False when the reader thread should stop.
+
+        Only a real EOF (stdin closed) or Ctrl+D stops the reader. A submitted
+        line — including a quit command — and Ctrl+C are delivered to the chat
+        loop, which owns the decision to actually quit; the reader keeps running
+        so the app can survive them (e.g. Ctrl+C on a focused shell).
+        """
         while True:
             ch = read_char()
             if ch is None:
                 continue
-            if ch == "":  # EOF: stdin closed or not a tty (POSIX read returns "")
+            if ch in ("", "\x04"):  # EOF / Ctrl+D: stdin closing → quit for good
                 self._area.deactivate()
                 self.lines.put(None)
                 return False
             if ch in ("\r", "\n"):
                 line = self._area.submit()
                 self.lines.put(line)
-                return line.lower() not in QUIT_COMMANDS
-            if ch in ("\x03", "\x04"):  # Ctrl+C / Ctrl+D
-                self._area.deactivate()
-                self.lines.put(None)
-                return False
+                return True
+            if ch == "\x03":  # Ctrl+C: let the chat loop decide (quit vs. shell)
+                self._area.submit()
+                self.lines.put(INTERRUPT)
+                return True
             if ch in ("\x08", "\x7f"):  # backspace (Windows / POSIX)
                 self._area.backspace()
             elif ch in ("\x00", "\xe0"):  # Windows special-key prefix: swallow

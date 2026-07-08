@@ -8,6 +8,7 @@ traceback.
 import argparse
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -93,6 +94,18 @@ def _check_dependencies() -> None:
         sys.exit(f"❌  Missing dependencies: pip install {' '.join(missing)}")
 
 
+def _detached_kwargs() -> dict:
+    """Popen flags that detach a child from our console's Ctrl+C group.
+
+    Windows delivers CTRL_C_EVENT to EVERY process sharing the console, so a
+    Ctrl+C in the chat (e.g. to close a shell session) would otherwise also kill
+    the Ollama server we launched. A new process group / session isolates it.
+    """
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
 def _start_ollama_server() -> subprocess.Popen:
     if shutil.which("ollama") is None:
         _install_ollama()
@@ -101,6 +114,7 @@ def _start_ollama_server() -> subprocess.Popen:
             ["ollama", "serve"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            **_detached_kwargs(),
         )
     except FileNotFoundError:
         # Just installed, but the new binary is not yet on this process's PATH
@@ -111,6 +125,25 @@ def _start_ollama_server() -> subprocess.Popen:
         )
     time.sleep(SERVER_STARTUP_SECONDS)  # give the server a moment to start
     return proc
+
+
+def _server_reachable() -> bool:
+    """True when the Ollama server answers on its port right now."""
+    try:
+        import ollama
+
+        ollama.ps()
+        return True
+    except Exception:
+        return False
+
+
+def _wait_reachable(retries: int = SERVER_LIST_RETRIES) -> bool:
+    for _ in range(retries):
+        if _server_reachable():
+            return True
+        time.sleep(0.5)
+    return False
 
 
 def _installed_models() -> set[str]:
@@ -171,13 +204,42 @@ def _unload_models() -> None:
         pass  # shutdown must never fail because the server is already gone
 
 
+def _terminate_tree(proc: subprocess.Popen) -> None:
+    """Kill the server process AND its children — the ollama runner subprocesses
+    that actually hold the models in memory.
+
+    Since the server now runs in its own process group/session (so a Ctrl+C in
+    the chat can't kill it), the console no longer cascades a shutdown to those
+    runners on exit; we must take the whole tree down ourselves or the models
+    stay resident.
+    """
+    if proc.poll() is not None:
+        return  # already gone (e.g. our child exited: a server was already up)
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                capture_output=True,
+            )
+        else:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except (OSError, subprocess.SubprocessError):
+        try:
+            proc.kill()  # best-effort fallback (single process only)
+        except OSError:
+            pass
+
+
 def _stop(proc: subprocess.Popen) -> None:
-    _unload_models()
-    proc.terminate()
+    _unload_models()  # graceful VRAM/RAM release via the API first
+    _terminate_tree(proc)  # then make sure no runner child is left behind
     try:
         proc.wait(timeout=5)
     except subprocess.TimeoutExpired:
-        proc.kill()
+        try:
+            proc.kill()
+        except OSError:
+            pass
 
 
 def main() -> None:
@@ -189,11 +251,27 @@ def main() -> None:
     from lodemaria.chat import ChatSession
     from lodemaria.terminal import raw_input_mode
 
-    ollama_proc = _start_ollama_server()
+    state = {"proc": _start_ollama_server()}
+
+    def ensure_server() -> bool:
+        """(Re)start the Ollama server if it is not answering, so the user never
+        has to launch it by hand. Returns True when the server is reachable."""
+        if _server_reachable():
+            return True
+        old = state.get("proc")
+        if old is not None:
+            _terminate_tree(old)
+        state["proc"] = _start_ollama_server()
+        return _wait_reachable()
+
     try:
         _ensure_models(args.model)
         with raw_input_mode():
-            session = ChatSession(model=args.model, max_results=args.results)
+            session = ChatSession(
+                model=args.model,
+                max_results=args.results,
+                ensure_server=ensure_server,
+            )
             session.run(initial_prompt=" ".join(args.prompt).strip())
     finally:
-        _stop(ollama_proc)
+        _stop(state["proc"])
