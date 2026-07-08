@@ -1,142 +1,82 @@
-# lodemaria/cli.py
+### lodemaria/cli.py
 
-This file is the command-line entry point for the `lodemaria` application. It handles argument parsing, manages the lifecycle of the Ollama server, and orchestrates the interaction with the user.
+**Command-line entry point: argument parsing and Ollama server lifecycle.**
 
-## Public Functions
+This module deliberately imports nothing from third-party packages at module level, so a missing dependency produces a friendly message instead of a traceback.
 
-### `_ollama_install_command()`
+#### Class: ChatSession
+##### Parameters:
+- `model`: The Ollama model to use (default: `DEFAULT_MODEL`).
+- `max_results`: Max search results per query (default: `DEFAULT_MAX_RESULTS`).
+- `ensure_server`: A function that ensures the Ollama server is reachable before each interaction. If not provided, a default server start-up time and retry logic are used.
 
-**Purpose:** Generates the command to install the Ollama server based on the operating system.
+##### Behavior:
+- Initializes the chat session with the specified model and maximum number of results.
+- Manages the interaction loop, prompting the user for input, running queries, and handling responses.
+- Exits gracefully when the user exits the chat session.
 
-**Parameters:**
-- None
+#### Class: ChatPrompt
+##### Parameters:
+- `user`: The user's name.
+- `model`: The Ollama model to use (default: `DEFAULT_MODEL`).
+- `max_results`: Max search results per query (default: `DEFAULT_MAX_RESULTS`).
+- `ensure_server`: A function that ensures the Ollama server is reachable before each interaction. If not provided, a default server start-up time and retry logic are used.
 
-**Return Value:** A list of strings representing the installation command.
+##### Behavior:
+- Initializes the chat prompt with the specified user name and model.
+- Manages the initial chat session prompt, prompting the user for input, running queries, and handling responses.
 
-**Behavior:** Checks if the operating system is Windows. If so, it returns a PowerShell command; otherwise, it returns a shell command for Unix-based systems.
+#### Function: _check_dependencies()
+##### Parameters: None
+##### Behavior:
+- Checks if all required packages (`ollama`, `ddgs`, `rich`) are installed. If not installed, it exits with a friendly message.
 
-### `_install_ollama()`
+#### Function: _start_ollama_server()
+##### Parameters: None
+##### Behavior:
+- Attempts to start the Ollama server and waits for it to become ready.
+- Exits if the server fails to start within the specified retries.
 
-**Purpose:** Installs the Ollama server automatically using the official installer.
+#### Function: _server_reachable()
+##### Parameters: None
+##### Behavior:
+- Checks if the Ollama server is reachable by attempting to access its API endpoint.
+- Returns `True` if the server is reachable, otherwise `False`.
 
-**Parameters:**
-- None
+#### Function: _wait_reachable(retries=SERVER_LIST_RETRIES)
+##### Parameters: `retries`: The number of retries before giving up (default: `SERVER_LIST_RETRIES`).
+##### Behavior:
+- Polls for the server to be reachable (`retries` times), waiting 0.5 seconds between each poll.
+- Returns `True` if the server is reachable, otherwise `False`.
 
-**Return Value:** None
+#### Function: _installed_models()
+##### Parameters: None
+##### Behavior:
+- Lists all models currently installed on the Ollama server.
+- Returns a set of canonicalized model tags.
 
-**Behavior:** Calls `_ollama_install_command()` to get the installation command and runs it using `subprocess.run()`. If the installer is missing or fails, exits with an error message.
+#### Function: _canonical(name)
+##### Parameters: `name`: The name of a model tag (either with or without colon).
+##### Behavior:
+- Canonicalizes the model tag, adding a colon if necessary to match the expected format.
 
-### `_parse_args()`
+#### Function: _ensure_models(chat_model)
+##### Parameters: `chat_model`: The chat model to pull.
+##### Behavior:
+- Pulls the specified chat model and any other required models (megabrain and forge) from the Ollama server if they are not already installed.
 
-**Purpose:** Parses command-line arguments.
+#### Function: _unload_models()
+##### Parameters: None
+##### Behavior:
+- Unloads all loaded models, freeing RAM/VRAM.
 
-**Parameters:**
-- None
+#### Function: _terminate_tree(proc)
+##### Parameters: `proc`: The process to terminate.
+##### Behavior:
+- Terminates the specified process and its children by killing the entire tree.
+- Uses different methods depending on whether the OS is Windows or not.
 
-**Return Value:** An `argparse.Namespace` object containing the parsed arguments.
-
-**Behavior:** Sets up an argument parser and defines the following options:
-- `--model` or `-m`: Specifies the Ollama model to use.
-- `--results` or `-r`: Specifies the maximum number of search results per query.
-- `prompt`: An optional first prompt to send immediately.
-
-### `_force_utf8_output()`
-
-**Purpose:** Ensures that emoji-heavy output is displayed correctly in the console.
-
-**Parameters:**
-- None
-
-**Return Value:** None
-
-**Behavior:** Iterates over standard output and error streams. If a stream has a `reconfigure` method, it reconfigures it to use UTF-8 encoding with error replacement.
-
-### `_check_dependencies()`
-
-**Purpose:** Checks if all required dependencies are installed.
-
-**Parameters:**
-- None
-
-**Return Value:** None
-
-**Behavior:** Lists missing packages and exits with an error message if any are found. Uses `importlib.util.find_spec()` to check for package availability.
-
-### `_start_ollama_server()`
-
-**Purpose:** Starts the Ollama server.
-
-**Parameters:**
-- None
-
-**Return Value:** A `subprocess.Popen` object representing the running Ollama server process.
-
-**Behavior:** Checks if the `ollama` command is available. If not, calls `_install_ollama()` to install it. Then, starts the server in a detached mode and waits for it to initialize.
-
-### `_installed_models()`
-
-**Purpose:** Retrieves the list of installed models from the Ollama server.
-
-**Parameters:**
-- None
-
-**Return Value:** A set of strings representing the installed model tags.
-
-**Behavior:** Attempts to retrieve the list of models using the `ollama` Python module. If successful, returns a canonicalized set of model names. If the server does not respond within the specified retries, exits with an error message.
-
-### `_canonical(name)`
-
-**Purpose:** Canonicalizes a model name by appending ':latest' if it does not contain a version tag.
-
-**Parameters:**
-- `name`: The model name as a string.
-
-**Return Value:** A canonicalized model name as a string.
-
-**Behavior:** Checks if the model name contains a colon. If not, appends ':latest'.
-
-### `_ensure_models(chat_model)`
-
-**Purpose:** Ensures that all necessary models are downloaded and available.
-
-**Parameters:**
-- `chat_model`: The chat model to ensure is available.
-
-**Return Value:** None
-
-**Behavior:** Checks for the existence of the specified models (`chat_model`, `MEGABRAIN_MODEL`, `FORGE_MODEL`). If any are missing, downloads them using `ollama pull`. Exits with an error message if a download fails.
-
-### `_unload_models()`
-
-**Purpose:** Unloads all loaded models from the Ollama server to free up memory and VRAM.
-
-**Parameters:**
-- None
-
-**Return Value:** None
-
-**Behavior:** Uses the `ollama` Python module to unload all loaded models. This ensures that any previously running instances of the server do not retain their models after the current session ends.
-
-### `_stop(proc)`
-
-**Purpose:** Stops the Ollama server process and cleans up resources.
-
-**Parameters:**
-- `proc`: A `subprocess.Popen` object representing the Ollama server process.
-
-**Return Value:** None
-
-**Behavior:** Calls `_unload_models()` to unload all models. Terminates the process using `terminate()`. Waits for the process to terminate gracefully; if it does not, kills it with a timeout of 5 seconds.
-
-### `main()`
-
-**Purpose:** The main entry point for the command-line interface.
-
-**Parameters:**
-- None
-
-**Return Value:** None
-
-**Behavior:** Calls `_force_utf8_output()` to ensure UTF-8 encoding. Parses arguments using `_parse_args()`, checks dependencies with `_check_dependencies()`, and imports necessary modules within a try block to avoid circular import issues. Starts the Ollama server, ensures models are available, runs the chat session, and finally stops the server using `_stop()`.
-
-This function orchestrates the entire flow of the application, from starting the server and ensuring model availability to handling user input and cleaning up resources when the session ends.
+#### Function: _stop(proc)
+##### Parameters: `proc`: The process to stop.
+##### Behavior:
+- Stops the specified process gracefully by waiting for it to exit (with a timeout), then kills the process if it does not exit within the timeout.

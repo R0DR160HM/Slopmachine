@@ -1,15 +1,48 @@
-## requirements.txt
+# Requirements.txt - Project Dependencies
 
-This file lists the Python packages required by the project. These packages are essential for various functionalities such as handling HTTP requests, processing natural language, and enhancing text extraction from web pages.
+This file lists the required packages and dependencies for the project, specifying the versions of each package used.
 
-- **ollama**: A library used for generating human-like text based on prompts.
-- **ddgs**: A module for performing searches using DuckDuckGo's search engine API.
-- **rich**: A terminal user interface (TUI) toolkit for Python that makes it easy to create beautiful and complex user interfaces in the terminal.
-- **pillow** (optional): A fork of PIL (Python Imaging Library) that adds support for opening, manipulating, and saving many different image file formats. It's used for rendering terminal images.
-- **beautifulsoup4** (optional): A library for web scraping purposes to pull the data out of HTML and XML files. It creates a parse tree from page source code that can be used to extract data in a hierarchical and more readable manner.
+## ollama
+- **Description**: A large language model developed by Meta.
+- **Parameters**:
+  - `model_name`: Name of the model to use.
+- **Return Values**:
+  - `response`: The output of the model in natural language.
+- **Error Handling**:
+  - Raised if the model name is invalid.
 
-These packages are managed using `pip` and should be installed by running:
-```sh
-pip install -r requirements.txt
-```
-This ensures that all dependencies are correctly set up for the project to run.
+## ddgs
+- **Description**: A dynamic database search engine for web pages.
+- **Parameters**:
+  - `url`: URL of the webpage to search on.
+- **Return Values**:
+  - `results`: List of search results from the webpage.
+- **Error Handling**:
+  - Raised if the URL is invalid or the webpage cannot be accessed.
+
+## rich
+- **Description**: A rich text generator for Python that allows you to format and display text in various ways.
+- **Parameters**:
+  - `text`: The text to be formatted.
+- **Return Values**:
+  - `formatted_text`: The formatted text.
+- **Error Handling**:
+  - Raised if the input is not a valid string.
+
+## pillow
+- **Description**: A fork of PIL that adds support for more formats and improved performance.
+- **Parameters**:
+  - `image_path`: Path to the image file.
+- **Return Values**:
+  - `image`: The loaded image object.
+- **Error Handling**:
+  - Raised if the image file cannot be found or opened.
+
+## beautifulsoup4
+- **Description**: A library for web scraping purposes to extract data from HTML and XML files.
+- **Parameters**:
+  - `url`: URL of the webpage to scrape on.
+- **Return Values**:
+  - `parsed_data`: The parsed data in a structured format (e.g., dictionary or list).
+- **Error Handling**:
+  - Raised if the URL is invalid or the webpage cannot be accessed.

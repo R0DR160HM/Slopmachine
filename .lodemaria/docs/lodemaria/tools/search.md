@@ -1,61 +1,36 @@
-# Search Tools
+# lodemaria/tools/search.py
 
-The `search.py` file provides a set of utilities for performing searches using the DuckDuckGo search engine and formatting the results. This includes web, image, and news searches.
+This file contains the `search.py` module, which is responsible for running DuckDuckGo searches and formatting the results for a machine learning model. The module includes four functions: `web_search`, `image_search`, `news_search`, and `format_search_results`.
 
-## Functions
+### web_search(query: str, max_results: int = DEFAULT_MAX_RESULTS) -> list[dict]
 
-### `_search(kind: str, query: str, max_results: int) -> list[dict]`
+Runs a text search using DuckDuckGo. Parameters:
+- `query`: The search query.
+- `max_results`: Maximum number of results to return (default is 10).
 
-- **Purpose**: Runs a single DDGS search of the given kind.
-- **Parameters**:
-  - `kind`: The type of search ("text", "images", "news").
-  - `query`: The search query string.
-  - `max_results`: Maximum number of results to return (default is from config).
-- **Return Value**: A list of search results or an empty list on failure.
-- **Behavior**: Uses the `DDGS` class from the `ddgs` module to perform the search. Handles exceptions and returns an empty list if any error occurs.
-- **Side Effects**: Makes network requests.
+Returns:
+- A list of dictionaries containing information about each result, including title, body, and URL.
 
-### `web_search(query: str, max_results: int = DEFAULT_MAX_RESULTS) -> list[dict]`
+### image_search(query: str, max_results: int = DEFAULT_MAX_RESULTS) -> list[dict]
 
-- **Purpose**: Perform a web search.
-- **Parameters**:
-  - `query`: The search query string.
-  - `max_results`: Maximum number of results to return (default is from config).
-- **Return Value**: A list of search results formatted as dictionaries.
+Runs an image search using DuckDuckGo. Parameters:
+- `query`: The search query.
+- `max_results`: Maximum number of results to return (default is 10).
 
-### `image_search(query: str, max_results: int = DEFAULT_MAX_RESULTS) -> list[dict]`
+Returns:
+- A list of dictionaries containing information about each result, including title, image URL, source, and dimensions.
 
-- **Purpose**: Perform an image search.
-- **Parameters**:
-  - `query`: The search query string.
-  - `max_results`: Maximum number of results to return (default is from config).
-- **Return Value**: A list of search results formatted as dictionaries.
+### news_search(query: str, max_results: int = DEFAULT_MAX_RESULTS) -> list[dict]
 
-### `news_search(query: str, max_results: int = DEFAULT_MAX_RESULTS) -> list[dict]`
+Runs a news search using DuckDuckGo. Parameters:
+- `query`: The search query.
+- `max_results`: Maximum number of results to return (default is 10).
 
-- **Purpose**: Perform a news search.
-- **Parameters**:
-  - `query`: The search query string.
-  - `max_results`: Maximum number of results to return (default is from config).
-- **Return Value**: A list of search results formatted as dictionaries.
+Returns:
+- A list of dictionaries containing information about each result, including title, body, URL, date, and source.
 
-### `format_search_results(results: list[dict]) -> str`
+### format_search_results(results: list[dict]) -> str
 
-- **Purpose**: Format text-search results into a readable block for the model.
-- **Parameters**:
-  - `results`: A list of search results.
-- **Return Value**: Formatted string with results in a human-readable format. If no results are found, returns "No results found."
+Formats a list of search results into a readable block for the machine learning model. Each dictionary in the list contains keys such as `title`, `body`, `href`, etc., which are then formatted into text context for the model.
 
-### `format_image_results(results: list[dict]) -> str`
-
-- **Purpose**: Format image results as text context for the model.
-- **Parameters**:
-  - `results`: A list of search results.
-- **Return Value**: Formatted string with results in a human-readable format. If no images are found, returns "No images found."
-
-### `format_news_results(results: list[dict]) -> str`
-
-- **Purpose**: Format news results into a readable block for the model.
-- **Parameters**:
-  - `results`: A list of search results.
-- **Return Value**: Formatted string with results in a human-readable format. If no news are found, returns "No news found."
+This module is designed to help the model generate relevant and informative responses based on user queries.

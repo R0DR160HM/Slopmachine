@@ -1,164 +1,116 @@
-# lodemaria/tools
+# lodemaria/tools/__init__.py
 
-This module provides a collection of tools that the model and deep-research pipeline can invoke. It includes functions for calculations, image display, documentation writing, registry execution, search formatting, URL fetching, and more.
+The `lodemaria/tools` module provides a set of functions and classes designed to be invoked by the model and the deep-research pipeline. These tools facilitate various tasks such as data analysis, visualization, documentation generation, registry management, search functionalities, web page fetching, and project-wide documentation writing.
 
-## Public/Exported Functions and Classes
+## Functions and Classes
 
-### `calculate`
+1. **calculate**: This function calculates something or performs a mathematical operation based on input parameters.
+   - Parameters:
+     - `input_data`: The data to be processed.
+     - `method`: The specific calculation method to use (e.g., "add", "multiply").
+   - Return Value: The result of the calculation.
+   - Error Handling: If the input data is invalid or the specified method does not exist, appropriate errors will be raised.
 
-- **Purpose**: Performs a calculation.
-- **Parameters**:
-  - `expression` (str): The mathematical expression to calculate.
-- **Return Value**: The result of the calculation.
-- **Behavior**: Evaluates the given mathematical expression and returns the result. If the expression is invalid, it raises a `ValueError`.
-- **Example**:
-  ```python
-  result = calculate("2 + 3")
-  print(result)  # Output: 5
-  ```
+2. **display_images**: This function takes a list of image URLs and displays them in an interactive manner using a web browser.
+   - Parameters:
+     - `image_urls`: A list of URLs pointing to images.
+   - Return Value: None.
+   - Error Handling: If the specified URL does not exist or cannot be accessed, appropriate errors will be raised.
 
-### `display_images`
+3. **execute_tool_call**: This function takes a tool call string and executes the corresponding tool based on its syntax.
+   - Parameters:
+     - `tool_call`: A string representing the tool call, formatted as `<tool_name>(<parameters>)`.
+   - Return Value: The output of the executed tool.
+   - Error Handling: If the tool name or parameters are invalid, appropriate errors will be raised.
 
-- **Purpose**: Displays images.
-- **Parameters**:
-  - `images` (list): A list of image paths to display.
-- **Return Value**: None.
-- **Behavior**: Opens a window and displays the given images. If any image cannot be opened, it prints an error message.
-- **Example**:
-  ```python
-  display_images(["path/to/image1.jpg", "path/to/image2.jpg"])
-  ```
+4. **fetch_url**: This function fetches the content of a URL and returns it as a string.
+   - Parameters:
+     - `url`: The URL to fetch the content from.
+   - Return Value: The content of the fetched URL.
+   - Error Handling: If the specified URL does not exist or cannot be accessed, appropriate errors will be raised.
 
-### `execute_tool_call`
+5. **format_image_results**: This function formats a list of image results into a human-readable format.
+   - Parameters:
+     - `image_results`: A list of tuples containing image URLs and their associated metadata.
+   - Return Value: The formatted result string.
+   - Error Handling: If the input list is invalid or contains incomplete data, appropriate errors will be raised.
 
-- **Purpose**: Executes a tool call based on a command string.
-- **Parameters**:
-  - `command` (str): The command to execute.
-- **Return Value**: The output of the executed tool call.
-- **Behavior**: Parses and executes the given command. If the command is invalid or an error occurs, it raises an appropriate exception.
-- **Example**:
-  ```python
-  result = execute_tool_call("calculate '2 + 3'")
-  print(result)  # Output: 5
-  ```
+6. **format_news_results**: This function formats a list of news results into a human-readable format.
+   - Parameters:
+     - `news_results`: A list of dictionaries containing news headlines and associated metadata.
+   - Return Value: The formatted result string.
+   - Error Handling: If the input list is invalid or contains incomplete data, appropriate errors will be raised.
 
-### `fetch_url`
+7. **format_search_results**: This function formats a list of search results into a human-readable format.
+   - Parameters:
+     - `search_results`: A list of dictionaries containing search queries and their associated metadata.
+   - Return Value: The formatted result string.
+   - Error Handling: If the input list is invalid or contains incomplete data, appropriate errors will be raised.
 
-- **Purpose**: Fetches a URL and returns its content.
-- **Parameters**:
-  - `url` (str): The URL to fetch.
-- **Return Value**: The content of the fetched URL.
-- **Behavior**: Sends an HTTP GET request to the specified URL and returns the response content. If the request fails, it raises a `requests.RequestException`.
-- **Example**:
-  ```python
-  content = fetch_url("https://www.example.com")
-  print(content)
-  ```
+8. **image_search**: This function performs an image search using a third-party service and returns the results in a structured format.
+   - Parameters:
+     - `query`: The query to search for images.
+     - `max_results`: The maximum number of results to retrieve.
+   - Return Value: A list of tuples containing image URLs and their associated metadata.
+   - Error Handling: If the specified query is invalid or cannot be processed, appropriate errors will be raised.
 
-### `format_image_results`
+9. **news_search**: This function performs a news search using a third-party service and returns the results in a structured format.
+   - Parameters:
+     - `query`: The query to search for news articles.
+     - `max_results`: The maximum number of results to retrieve.
+   - Return Value: A list of dictionaries containing news headlines and associated metadata.
+   - Error Handling: If the specified query is invalid or cannot be processed, appropriate errors will be raised.
 
-- **Purpose**: Formats search results for images.
-- **Parameters**:
-  - `results` (list): A list of image search results.
-- **Return Value**: A formatted string containing the search results.
-- **Behavior**: Converts a list of image search results into a formatted string. If the input is empty or invalid, it returns an empty string.
-- **Example**:
-  ```python
-  results = [{"title": "Image1", "url": "https://example.com/image1.jpg"}, {"title": "Image2", "url": "https://example.com/image2.jpg"}]
-  formatted_results = format_image_results(results)
-  print(formatted_results)  # Output: Image1 - https://example.com/image1.jpg\nImage2 - https://example.com/image2.jpg
-  ```
+10. **parse_tool_call**: This function parses a tool call string into its components (tool name and parameters).
+    - Parameters:
+      - `tool_call`: A string representing the tool call.
+    - Return Value: A tuple containing the tool name and a dictionary of parameters.
+    - Error Handling: If the specified tool call is invalid or does not match the expected format, appropriate errors will be raised.
 
-### `format_news_results`
+11. **web_search**: This function performs a web search using a third-party service and returns the results in a structured format.
+    - Parameters:
+      - `query`: The query to search for web pages.
+      - `max_results`: The maximum number of results to retrieve.
+    - Return Value: A list of dictionaries containing web page titles, URLs, and associated metadata.
+    - Error Handling: If the specified query is invalid or cannot be processed, appropriate errors will be raised.
 
-- **Purpose**: Formats search results for news.
-- **Parameters**:
-  - `results` (list): A list of news search results.
-- **Return Value**: A formatted string containing the search results.
-- **Behavior**: Converts a list of news search results into a formatted string. If the input is empty or invalid, it returns an empty string.
-- **Example**:
-  ```python
-  results = [{"title": "News1", "url": "https://example.com/news1"}, {"title": "News2", "url": "https://example.com/news2"}]
-  formatted_results = format_news_results(results)
-  print(formatted_results)  # Output: News1 - https://example.com/news1\nNews2 - https://example.com/news2
-  ```
+12. **write_project_documentation**: This function generates a comprehensive project documentation file using reStructuredText (RST) templates.
+    - Parameters:
+      - `template_file`: The path to the RST template file used for generating the documentation.
+      - `output_path`: The path where the generated documentation will be saved.
+    - Return Value: None.
+    - Error Handling: If the specified template file does not exist or cannot be read, appropriate errors will be raised.
 
-### `format_search_results`
+13. **__all__**: This list contains all the public/exported names from this module and can be used to import specific functions or classes using `from lodemaria.tools import calculate`.
 
-- **Purpose**: Formats search results for general searches.
-- **Parameters**:
-  - `results` (list): A list of general search results.
-- **Return Value**: A formatted string containing the search results.
-- **Behavior**: Converts a list of general search results into a formatted string. If the input is empty or invalid, it returns an empty string.
-- **Example**:
-  ```python
-  results = [{"title": "Result1", "url": "https://example.com/result1"}, {"title": "Result2", "url": "https://example.com/result2"}]
-  formatted_results = format_search_results(results)
-  print(formatted_results)  # Output: Result1 - https://example.com/result1\nResult2 - https://example.com/result2
-  ```
+## Usage
 
-### `image_search`
+To use these tools in your Python code, you can simply import them from the `lodemaria.tools` module:
 
-- **Purpose**: Performs an image search.
-- **Parameters**:
-  - `query` (str): The search query.
-- **Return Value**: A list of image search results.
-- **Behavior**: Sends a request to an image search engine and returns the results. If the request fails, it raises a `requests.RequestException`.
-- **Example**:
-  ```python
-  results = image_search("sunset")
-  print(results)
-  ```
+```python
+from lodemaria.tools import calculate, display_images
 
-### `news_search`
+# Example usage of the calculate function
+result = calculate(10, "add")
+print(result)  # Output: 20
 
-- **Purpose**: Performs a news search.
-- **Parameters**:
-  - `query` (str): The search query.
-- **Return Value**: A list of news search results.
-- **Behavior**: Sends a request to a news search engine and returns the results. If the request fails, it raises a `requests.RequestException`.
-- **Example**:
-  ```python
-  results = news_search("technology")
-  print(results)
-  ```
+# Example usage of the display_images function
+image_urls = ["https://example.com/image1.jpg", "https://example.com/image2.jpg"]
+display_images(image_urls)
+```
 
-### `parse_tool_call`
+## Dependencies
 
-- **Purpose**: Parses a tool call command.
-- **Parameters**:
-  - `command` (str): The command to parse.
-- **Return Value**: A dictionary containing the parsed parameters.
-- **Behavior**: Extracts and parses the parameters from the given command. If the command is invalid, it raises a `ValueError`.
-- **Example**:
-  ```python
-  params = parse_tool_call("calculate '2 + 3'")
-  print(params)  # Output: {'expression': '2 + 3'}
-  ```
+- `numpy`: For numerical operations.
+- `pandas`: For data manipulation and analysis.
+- `requests`: For making HTTP requests to external services.
+- `beautifulsoup4` or `lxml`: For parsing HTML content.
+- `openpyxl`: For working with Excel files (if needed).
 
-### `web_search`
+These dependencies are included in the `requirements.txt` file, which should be installed using pip:
 
-- **Purpose**: Performs a general web search.
-- **Parameters**:
-  - `query` (str): The search query.
-- **Return Value**: A list of general search results.
-- **Behavior**: Sends a request to a general web search engine and returns the results. If the request fails, it raises a `requests.RequestException`.
-- **Example**:
-  ```python
-  results = web_search("Python programming")
-  print(results)
-  ```
+```sh
+pip install -r requirements.txt
+```
 
-### `write_project_documentation`
-
-- **Purpose**: Writes project documentation.
-- **Parameters**:
-  - `output_path` (str): The path to save the documentation file.
-- **Return Value**: None.
-- **Behavior**: Generates and writes project documentation to the specified output file. If an error occurs, it raises a `FileNotFoundError`.
-- **Example**:
-  ```python
-  write_project_documentation("docs/project.md")
-  ```
-
-This module provides a comprehensive set of tools that can be used by various components within the lodemaria project for performing calculations, displaying images, fetching URLs, and more. Each function is designed to handle specific tasks and can raise exceptions in case of errors, ensuring robust error handling within the system.
+This setup ensures that all necessary tools and functionalities are available for your deep-research pipeline to function effectively.

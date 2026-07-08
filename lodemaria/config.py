@@ -6,14 +6,14 @@ DEFAULT_MODEL = "qwen2.5:1.5b"
 MEGABRAIN_MODEL = "qwen2.5:7b"
 
 # Model used by tool_forge to write new tools in Python.
-FORGE_MODEL = "qwen2.5-coder:7b"
+FORGE_MODEL = "qwen2.5-coder:1.5b"
 
 # Model used by write_project_documentation to write the per-file docs.
-DOC_MODEL = "qwen2.5-coder:7b"
+DOC_MODEL = "qwen2.5-coder:1.5b"
 
 # Model that synthesizes the general PROJECT.md from the per-file docs —
 # a prose task, so the general model fits better than the coder one.
-DOC_SYNTH_MODEL = "qwen2.5:7b"
+DOC_SYNTH_MODEL = "qwen2.5:3b"
 
 # Source chars fed to the doc model per file group (fits NUM_CTX with room
 # for the generated docs).

@@ -1,53 +1,39 @@
-# Build Scripts for Lodemaria Project
+# Build Scripts for Lodemaria
 
-This document outlines the build scripts for the Lodemaria project, which are used to create a self-contained executable (`lodemaria.exe` on Windows and `lodemaria` on Linux).
+## Building `lodemaria.exe`
 
-## Scripts Overview
+The `build.ps1` script is used to build the self-contained single-file executable `lodemaria.exe`. It uses the PyInstaller tool, which converts Python scripts into standalone Windows executables.
 
-### build.ps1
+### Usage:
+```powershell
+.\build.ps1
+```
 
-- **Purpose**: Builds the Lodemaria project into a single-file executable for Windows.
-- **Usage**: Run `.build.ps1` from PowerShell.
+### Parameters:
+- No parameters are needed for this script.
 
-#### Functions and Constants
+### Behavior and Error Handling:
+The script installs the required package (`pyinstaller`) using pip. It then uses PyInstaller to create a single-file executable named `lodemaria.exe`. The `--onefile` option ensures that all Python dependencies are included in the final executable. The `--name lodemaria` option sets the name of the output executable. The `--clean` and `--noconfirm` options clean up any intermediate files and confirm the build process with user input, respectively.
 
-There are no public functions or constants in this script. It consists of:
+### Notes:
+- This script is intended for Windows users and should be run in a command prompt or PowerShell window.
+- For Linux users, you can use the `build.sh` script to achieve similar results.
 
-- `$ErrorActionPreference`: Set to `Stop` to halt execution on any error.
-- The main build logic, which includes installing PyInstaller, running it to create the executable, and printing a success message.
+## Building `lodemaria`
 
-### build.sh
+The `build.sh` script is used to build the self-contained single-file executable `lodemaria`. It uses the PyInstaller tool, which converts Python scripts into standalone Linux executables.
 
-- **Purpose**: Builds the Lodemaria project into a single-file executable for Linux.
-- **Usage**: Run `./build.sh` from a Bash shell.
+### Usage:
+```bash
+./build.sh
+```
 
-#### Functions and Constants
+### Parameters:
+- No parameters are needed for this script.
 
-There are no public functions or constants in this script. It consists of:
+### Behavior and Error Handling:
+The script installs the required package (`pyinstaller`) using pip. It then uses PyInstaller to create a single-file executable named `lodemaria`. The `--onefile` option ensures that all Python dependencies are included in the final executable. The `--name lodemaria` option sets the name of the output executable. The `--clean` and `--noconfirm` options clean up any intermediate files and confirm the build process with user input, respectively.
 
-- `set -euo pipefail`: Ensures strict error handling, exiting on any errors or undefined variables.
-- The main build logic, which includes installing PyInstaller, running it to create the executable, and printing a success message.
-
-## Internal Logic and Algorithms
-
-Both scripts use PyInstaller to convert the Python script (`lodemaria.py`) into a single-file executable. This process is identical across both platforms.
-
-### Error Handling
-
-- **build.ps1**: Halts execution if any command fails due to `$ErrorActionPreference = "Stop"`.
-- **build.sh**: Exits on any error, undefined variable, or failed pipe operation.
-
-### Side Effects
-
-Both scripts perform the following actions:
-
-- Install PyInstaller using `pip` if it's not already installed.
-- Run PyInstaller with options to create a single-file executable (`--onefile`) and specify the name of the output file.
-- Print a success message indicating that the build was completed successfully.
-
-## Usage Notes
-
-- **Windows**: Use `build.ps1` for Windows platforms. This will generate a `.exe` file in the `dist` directory.
-- **Linux**: Use `build.sh` for Linux platforms. This will generate an ELF executable in the `dist` directory.
-
-These scripts provide a straightforward way to build the Lodemaria project into a standalone executable, facilitating distribution and deployment across different operating systems.
+### Notes:
+- This script is intended for Linux users.
+- For Windows users, you should use the `build.ps1` script to achieve similar results.

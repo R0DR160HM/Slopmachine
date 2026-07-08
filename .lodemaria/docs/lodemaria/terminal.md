@@ -1,44 +1,40 @@
-## lodemaria/terminal.py
+### **File: lodemaria/terminal.py**
 
-This file provides thread-safe terminal I/O functionality, portable across Windows and POSIX. It keeps a "Digite:" input prompt (plus an optional status line) pinned to the bottom of the screen while other threads print above it. A single lock guards both the input buffer and stdout writes so that concurrent prints erase the prompt block, print their content, then redraw it in place.
+**Description:** This module provides thread-safe terminal I/O for a chat application. It handles both input from the user and output to the console in real-time, ensuring that messages are displayed correctly even when other threads are active.
 
-### Public Classes
+#### **Public Exported Classes and Functions:**
 
-#### PromptArea
-Owns the bottom-of-screen input area (status line + prompt). All public methods are self-locking; `lock` is re-entrant so callers (e.g. SafeConsole) can hold it across an erase → print → redraw sequence.
+- **`PromptArea`**: Manages the bottom-of-screen input area, including handling typed characters, backspace keys, and status updates. It ensures that the prompt is always visible by keeping track of its position in the console.
+  - **Methods**:
+    - `begin_input()`: Starts accepting input from the user.
+    - `type_char(ch: str)`: Adds a single character to the input buffer.
+    - `backspace()`: Removes the last character from the input buffer if possible.
+    - `submit()`: Submits the current line of input and returns it. If Ctrl+C is pressed, it submits the line as an interrupt signal.
+    - `deactivate()`: Hides the prompt area, preventing further input until shown again.
 
-**Methods:**
-- **`__init__(self)`**: Initializes the `PromptArea` instance with an empty buffer, inactive status, and a lock.
-- **`erase(self)`**: Erases the currently-drawn block (cursor ends where it started).
-- **`draw(self)`**: Draws the block and remembers how many lines it occupies.
-- **`set_status(self, text: str)`**: Updates the live status line above the prompt, redrawing in place.
-- **`write(self, text: str)`**: Writes raw text to stdout, keeping the prompt at the bottom.
-- **`hide(self)`**: Takes the prompt off the screen (e.g. while a live region renders). Typed characters keep accumulating unechoed until `show()` redraws them.
-- **`show(self)`**: Restores the prompt hidden by `hide()`, including anything typed since.
-- **`begin_input(self)`**: Begins input collection and draws the prompt.
-- **`type_char(self, ch: str)`**: Types a character into the buffer and updates the screen.
-- **`backspace(self)`**: Deletes the last character from the buffer and updates the screen.
-- **`submit(self)`**: Closes the input area and returns the typed line (stripped).
-- **`deactivate(self)`**: Deactivates the input area.
+- **`SafeConsole`**: Extends the `Console` class to ensure that the prompt area stays visible while processing user input.
+  - **Methods**:
+    - `print(*args, **kwargs)`: Prints text to the console, erasing and redrawing the prompt area as necessary.
 
-#### SafeConsole
-Rich Console whose print() erases/restores the input prompt.
+- **`InputReader`**: Manages the background thread responsible for reading user input from the terminal.
+  - **Methods**:
+    - `start()`: Starts the input reader thread.
+    - `allow()`: Opens the prompt area for the next line of input.
+    - `_run()`: The main loop for the input reader thread, handling typed characters, backspace keys, and status updates. It also handles EOF/Ctrl+D and Ctrl+C signals by submitting them to the chat loop.
 
-**Methods:**
-- **`__init__(self, area: PromptArea, **kwargs)`**: Initializes the `SafeConsole` instance with the specified `PromptArea`.
-- **`print(self, *args, **kwargs)`**: Overrides the base class method to erase and redraw the prompt during printing.
+#### **Internal Logic, Algorithms, and Side Effects:**
 
-#### InputReader
-Reads user input character-by-character on a background thread. Submitted lines are delivered through `lines`; `None` signals Ctrl+C/Ctrl+D.
+- **Input Handling**:
+  - The `InputReader` reads user input character-by-character using a background thread.
+  - It keeps track of the current line being typed and updates it as characters are entered.
+  - When a Ctrl+C is pressed, the `InputReader` submits an interrupt signal to the chat loop.
 
-**Methods:**
-- **`__init__(self, area: PromptArea)`**: Initializes the `InputReader` instance with the specified `PromptArea`.
-- **`start(self)`**: Starts the reader thread.
-- **`allow(self)`**: Opens the prompt for the next line of input.
-- **`_run(self)`**: Runs in a separate thread to read input characters and submit lines.
-- **`_read_line(self)`**: Reads one line; returns `False` when the reader thread should stop.
+- **Prompt Management**:
+  - The `PromptArea` handles the display and erasure of the prompt area, ensuring that the prompt remains visible when input is being handled.
+  - It uses ANSI escape sequences to redraw the prompt block in place during typing.
 
-### Shared Singletons
+- **Real-Time Output**:
+  - All output from the chat loop (e.g., messages) is printed directly to the console, with the prompt area updated as needed.
+  - This ensures that messages are displayed correctly even when other threads are active, such as rendering live regions or handling user input.
 
-- **`prompt_area`**: A singleton instance of `PromptArea`.
-- **`console`**: A singleton instance of `SafeConsole` using the shared `prompt_area`.
+This implementation provides a robust solution for managing terminal I/O in a concurrent chat application, ensuring that messages are always displayed correctly and that the user interface remains responsive.

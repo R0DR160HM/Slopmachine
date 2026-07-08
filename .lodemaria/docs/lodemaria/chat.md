@@ -1,67 +1,75 @@
 # lodemaria/chat.py
 
-The `chat.py` file is the core module for managing an interactive chat session. It handles user input, invokes various tools and services (like web search, image search, news search), and processes responses using a language model.
+The interactive chat session: user input → (tools) → model → answer.
 
-## Public/Exported Classes and Functions
+## Purpose and Role
 
-### pre_search_brackets(user_input: str, max_results: int) -> tuple[str, str]
+This module manages the interactive chat experience with a large language model. It includes functions to handle user input, route commands, manage shell sessions, and execute tools on the server. The chat session ensures that user input is processed correctly, tool calls are handled efficiently, and the backend connection is managed gracefully.
 
-**Purpose**: For each `[term]` in `user_input`, run searches before involving the model. Handles image search, news search, and text search.
+## Public/Exported Classes, Functions, Constants, and Entrypoints
 
-- **Parameters**:
-  - `user_input`: The user's input string containing possible terms to search.
-  - `max_results`: Maximum number of results to fetch for each search type.
+### ChatSession Class
+- **Constructor**:
+  - `__init__(self, model: str, max_results: int, ensure_server=None)`: Initializes the chat session with a specified model, maximum results per search, and an optional function to ensure the server is reachable.
+- **run(self, initial_prompt: str = "") -> None**: Starts the chat loop, handling user input, routing commands, managing shell sessions, and executing tools.
 
-- **Returns**: A tuple consisting of a cleaned prompt (with brackets removed) and a search context string containing the results of the searches.
+### InputReader Class
+- **start(self) -> None**: Start the interactive prompt reader.
+- **allow(self) -> None**: Allow input to be processed by the reader.
+- **lines.get(timeout=0.2)**: Get a line from the reader with a timeout.
 
-### ChatSession(model: str, max_results: int)
+### ShellManager Class
+- **start(command: str, origin="user") -> Session**: Start a new shell session and focus it. Returns the session object.
+- **terminate_all(self) -> None**: Terminate all active shell sessions.
 
-**Purpose**: Manages one interactive session. Owns the message history and the input reader.
+### Message Class
+- **role**: The role of the message (e.g., "user" or "assistant").
+- **content**: The content of the message.
 
-- **Parameters**:
-  - `model`: The initial language model to use.
-  - `max_results`: Maximum number of results to fetch for each search type in a single session.
+### parse_tool_call(assistant_text: str) -> dict or None**: Parse a tool call from the assistant's response.
 
-#### Methods
+### execute_tool_call(tool_call: dict, max_results: int) -> str**: Execute a tool on the model and return the result.
 
-- **run(initial_prompt: str = "") -> None**
+### display_images(img_results: list[Result]) -> None**: Display image results.
+- **format_image_results(img_results: list[Result]) -> str**: Format image results for rendering.
+- **image_search(term: str, max_results: int) -> list[Result]**: Search for images related to a term.
+- **news_search(term: str, max_results: int) -> list[Result]**: Search for news articles related to a term.
 
-  **Purpose**: Runs the chat session, processing user input and generating responses.
+### web_search(term: str, max_results: int) -> list[Result]**: Search for web pages related to a term.
+- **parse_tool_call(assistant_text: str) -> dict or None**: Parse a tool call from the assistant's response.
 
-  - **Parameters**:
-    - `initial_prompt`: An optional initial prompt passed on the command line.
+### write_project_documentation() -> str**: Run the documentation writer and record its summary in the history.
+- **ShellManager Class**
+  - **start(command: str, origin="user") -> Session**: Start a new shell session and focus it. Returns the session object.
+  - **terminate_all(self) -> None**: Terminate all active shell sessions.
 
-- **_print_header() -> None**
+### ChatSession Class
+- **run(self, initial_prompt: str = "") -> None**: Starts the chat loop, handling user input, routing commands, managing shell sessions, and executing tools.
+- **InputReader Class**
+  - **start(self) -> None**: Start the interactive prompt reader.
+  - **allow(self) -> None**: Allow input to be processed by the reader.
+  - **lines.get(timeout=0.2)**: Get a line from the reader with a timeout.
 
-  **Purpose**: Prints a header for the chat session in the console.
+### ShellManager Class
+- **start(command: str, origin="user") -> Session**: Start a new shell session and focus it. Returns the session object.
+- **terminate_all(self) -> None**: Terminate all active shell sessions.
 
-- **_loop() -> None**
+### Message Class
+- **role**: The role of the message (e.g., "user" or "assistant").
+- **content**: The content of the message.
 
-  **Purpose**: Main loop that continuously processes user input and generates responses until the session is terminated.
+### parse_tool_call(assistant_text: str) -> dict or None**: Parse a tool call from the assistant's response.
 
-- **_handle_message(user_input: str) -> None**
+### execute_tool_call(tool_call: dict, max_results: int) -> str**: Execute a tool on the model and return the result.
 
-  **Purpose**: Handles processing of a single message, including triggering Megabrain mode or deep research, performing searches, and generating responses using tools.
+### display_images(img_results: list[Result]) -> None**: Display image results.
+- **format_image_results(img_results: list[Result]) -> str**: Format image results for rendering.
+- **image_search(term: str, max_results: int) -> list[Result]**: Search for images related to a term.
+- **news_search(term: str, max_results: int) -> list[Result]**: Search for news articles related to a term.
 
-- **_activate_megabrain(user_input: str) -> str**
+### web_search(term: str, max_results: int) -> list[Result]**: Search for web pages related to a term.
+- **parse_tool_call(assistant_text: str) -> dict or None**: Parse a tool call from the assistant's response.
 
-  **Purpose**: Switches to the Megabrain model, rewrites the prompt in a more structured form (Megabrain mentions removed), and handles an empty message as a last-resort fallback.
+### write_project_documentation() -> str**: Run the documentation writer and record its summary in the history.
 
-  - **Returns**: The rewritten prompt or an empty string if the message was empty after removing Megabrain references.
-
-- **_agent_loop() -> None**
-
-  **Purpose**: Manages the agent loop where the language model calls tools until it produces a final plain-text answer. Handles reaching the maximum number of tool-call iterations without a final answer.
-
-### Internal Logic and Algorithms
-
-1. **Search Handling**: The `pre_search_brackets` function parses user input for bracketed terms (e.g., `[term]`) and performs text, image, and news searches accordingly.
-2. **Megabrain Mode Activation**: When the keyword "mega brain" is detected in the input, it switches to the Megabrain model and rewrites the prompt for more structured handling.
-3. **Deep Research Trigger**: The `pre_search_brackets` function also detects a deep research trigger (e.g., "pesquisa profunda") and initiates a multi-phase autonomous research pipeline.
-
-### Notable Internal Logic
-
-- **Tool Execution**: The `_agent_loop` method continuously invokes tools until a plain-text answer is generated or the maximum number of tool calls is reached.
-- **Error Handling**: The loop in `_agent_loop` handles exceptions that might occur during tool execution, ensuring the session can continue running.
-
-This module forms the backbone of the interactive chat functionality, integrating various tools and services to provide intelligent responses to user queries.
+This module provides robust support for an interactive chat experience with a large language model, including seamless handling of multiple tools, seamless integration with shell sessions, and efficient management of the backend connection.

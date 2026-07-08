@@ -1,81 +1,164 @@
 # lodemaria/tools/registry.py
 
-This file contains the logic for detecting and executing tool calls emitted by a language model. It includes functions to parse tool call requests, execute specific tools, and handle responses.
+The `registry.py` file in the `lodemaria/tools` directory is responsible for handling tool calls emitted by the model. It parses these JSON objects to determine which tool should be executed and returns the corresponding feedback message.
 
-## Public Functions
+### Purpose and Role
 
-### `parse_tool_call(text: str) -> dict[str, Any] | None`
+This module ensures that the model can interact with various tools available within the system, such as web searches, image downloads, news articles, fetching websites, and performing mathematical calculations. It also handles forged tools created at runtime and provides clear instructions on how to use them.
 
-**Purpose:** Parses the text to identify if it contains a tool call. If found, returns the parsed JSON dictionary; otherwise, returns `None`.
+### Public/Exported Classes, Functions, Constants, and Entry Point
 
-**Parameters:**
-- `text`: A string containing the model's response.
+#### `_REQUIRED_KEYS`
 
-**Returns:** A dictionary representing the tool call or `None` if no valid tool call is detected.
+This dictionary maps tool names to tuples of required JSON keys. Each tool call should include these keys to ensure proper execution.
 
-### `execute_tool_call(call: dict[str, Any], max_results: int) -> str`
+```python
+# lodemaria/tools/registry.py
+_REQUIRED_KEYS: dict[str, tuple[str, ...]] = {
+    "web_search": ("query",),
+    "image_search": ("query",),
+    "news_search": ("query",),
+    "fetch_url": ("url",),
+    "calculate": ("expression",),
+    "tool_forge": ("description",),
+    "shell": ("command",),
+}
+```
 
-**Purpose:** Executes a parsed tool call and returns feedback to the language model.
+#### `_forged_tools`
 
-**Parameters:**
-- `call`: A dictionary containing the details of the tool call.
-- `max_results`: An integer specifying the maximum number of results to return for search tools.
+This dictionary stores forged tools created at runtime. Each tool takes a single "input" string as an optional parameter.
 
-**Returns:** A string providing feedback about the executed tool call, suitable for further input from the model.
+```python
+# lodemaria/tools/registry.py
+_forged_tools: dict[str, ForgedTool] = {}
+```
 
-## Internal Functions
+#### `parse_tool_call(text: str) -> dict[str, Any] | None`
 
-### `_run_web_search(call: dict, max_results: int) -> str`
+This function searches for a JSON object anywhere in the (cleaned) response and parses it. It handles optional `` blocks to account for Qwen3 thinking mode.
 
-Executes a web search based on the query provided in the tool call. Displays search results and returns a formatted string.
+```python
+# lodemaria/tools/registry.py
+def parse_tool_call(text: str) -> dict[str, Any] | None:
+    # ...
+```
 
-### `_run_image_search(call: dict, max_results: int) -> str`
+#### `_run_web_search(call: dict, max_results: int) -> str`
 
-Executes an image search based on the query provided in the tool call. Displays images and returns a formatted string.
+This function handles the execution of a web search tool. It takes a query and displays the results to the user.
 
-### `_run_news_search(call: dict, max_results: int) -> str`
+```python
+# lodemaria/tools/registry.py
+def _run_web_search(call: dict, max_results: int) -> str:
+    # ...
+```
 
-Executes a news search based on the query provided in the tool call. Displays news results and returns a formatted string.
+#### `_run_image_search(call: dict, max_results: int) -> str`
 
-### `_run_fetch_url(call: dict, max_results: int) -> str`
+This function handles the execution of an image search tool. It takes a query and displays the images to the user.
 
-Fetches content from a URL specified in the tool call and returns it as plain text.
+```python
+# lodemaria/tools/registry.py
+def _run_image_search(call: dict, max_results: int) -> str:
+    # ...
+```
 
-### `_run_calculate(call: dict, max_results: int) -> str`
+#### `_run_news_search(call: dict, max_results: int) -> str`
 
-Evaluates a mathematical expression provided in the tool call and returns the result as plain text.
+This function handles the execution of a news search tool. It takes a query and displays the results to the user.
 
-### `_run_tool_forge(call: dict, max_results: int) -> str`
+```python
+# lodemaria/tools/registry.py
+def _run_news_search(call: dict, max_results: int) -> str:
+    # ...
+```
 
-Forges a new tool based on a description provided in the tool call. Registers the new tool and provides instructions for its use.
+#### `_run_fetch_url(call: dict, max_results: int) -> str`
 
-### `_run_write_project_documentation(call: dict, max_results: int) -> str`
+This function handles the execution of a fetch URL tool. It takes a URL and displays the content to the user.
 
-Writes documentation for the project to a file and returns a summary of the documentation process.
+```python
+# lodemaria/tools/registry.py
+def _run_fetch_url(call: dict, max_results: int) -> str:
+    # ...
+```
 
-### `_run_forged_tool(call: dict, max_results: int) -> str`
+#### `_run_calculate(call: dict, max_results: int) -> str`
 
-Executes a previously forged tool based on the name provided in the tool call. Returns the result of the tool execution.
+This function handles the execution of a calculate tool. It takes an expression and displays the result to the user.
 
-## Constants
+```python
+# lodemaria/tools/registry.py
+def _run_calculate(call: dict, max_results: int) -> str:
+    # ...
+```
 
-### `_REQUIRED_KEYS: dict[str, tuple[str, ...]]`
+#### `_run_tool_forge(call: dict, max_results: int) -> str`
 
-A dictionary mapping tool names to tuples of required JSON keys for those tools.
+This function handles the execution of a tool forge. It takes a description and executes it to create a new forged tool.
 
-### `_forged_tools: dict[str, ForgedTool]`
+```python
+# lodemaria/tools/registry.py
+def _run_tool_forge(call: dict, max_results: int) -> str:
+    # ...
+```
 
-A dictionary that stores all forged tools by their names.
+#### `_run_shell_unavailable(call: dict, max_results: int) -> str`
 
-### `_JSON_OBJECT_RE: re.Pattern`
+This function handles the execution of the shell tool. It provides a fallback for when the shell tool is not available in the interactive chat session.
 
-A regular expression pattern used to identify JSON objects within a string.
+```python
+# lodemaria/tools/registry.py
+def _run_shell_unavailable(call: dict, max_results: int) -> str:
+    # ...
+```
 
-## Algorithm and Side Effects
+#### `_run_forged_tool(call: dict, max_results: int) -> str`
 
-- The `parse_tool_call` function searches for JSON objects in the input text, which indicates a tool call.
-- Each tool execution function (`_run_web_search`, etc.) performs specific actions based on the tool name and parameters provided. For instance, `_run_image_search` calls an image search API and displays results using a custom function `display_images`.
-- The `_forged_tools` dictionary keeps track of all tools that have been dynamically created. Each tool has a unique name to avoid conflicts with built-in tools.
-- Error handling is performed within each tool execution function to manage exceptions that may occur during tool execution.
+This function handles the execution of a forged tool. It takes a tool name and executes it to return the result.
 
-This unit provides a comprehensive system for handling tool calls, making it possible for the language model to interact with various functionalities through text-based commands.
+```python
+# lodemaria/tools/registry.py
+def _run_forged_tool(call: dict, max_results: int) -> str:
+    # ...
+```
+
+#### `_HANDLERS`
+
+This dictionary maps tool names to their corresponding execution handlers.
+
+```python
+# lodemaria/tools/registry.py
+_HANDLERS: dict[str, Callable[[dict, int], str]] = {
+    "web_search": _run_web_search,
+    "image_search": _run_image_search,
+    "news_search": _run_news_search,
+    "fetch_url": _run_fetch_url,
+    "calculate": _run_calculate,
+    "tool_forge": _run_tool_forge,
+    "shell": _run_shell_unavailable,
+}
+```
+
+#### `execute_tool_call(call: dict[str, Any], max_results: int) -> str`
+
+This function executes a parsed tool call and returns the feedback message for the model. It delegates the execution to the corresponding handler based on the tool name.
+
+```python
+# lodemaria/tools/registry.py
+def execute_tool_call(call: dict[str, Any], max_results: int) -> str:
+    # ...
+```
+
+### Notable Internal Logic, Algorithms, and Side Effects
+
+The module handles various tools such as web searches, image downloads, news articles, fetching websites, and performing mathematical calculations. It also includes forged tools created at runtime to enhance the model's capabilities.
+
+- **Tool Execution**: The `execute_tool_call` function delegates the execution of a parsed tool call to the corresponding handler based on the tool name.
+- **Forged Tools**: The `_forged_tools` dictionary stores forged tools created at runtime, and the `_run_forged_tool` function handles their execution.
+- **Error Handling**: All tools include error handling mechanisms to manage potential issues during execution.
+
+### Conclusion
+
+The `registry.py` file in the `lodemaria/tools` directory is a crucial component of the model's tool ecosystem. It parses JSON objects to determine which tool should be executed and returns the corresponding feedback message. The module includes various tools such as web searches, image downloads, news articles, fetching websites, and performing mathematical calculations. Additionally, it handles forged tools created at runtime to enhance the model's capabilities.

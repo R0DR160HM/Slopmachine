@@ -1,26 +1,60 @@
-# lodemaria.py
+### lodemaria.py
 
-This Python script serves as the entry point for the `lodemaria` application, providing a convenient way to run it directly from the command line. It includes a command-line interface (CLI) that allows users to specify parameters such as the model and results.
+**Compatibility Launcher — the application lives in the `lodemaria` package.**
 
-## Public/Exported Function
+Usage:
+    python lodemaria.py                # or: python -m lodemaria
+    python lodemaria.py --model qwen2.5:3b --results 5
 
-### main()
+---
 
-- **Description**: The main function serves as the entry point for the application. It parses command-line arguments, initializes necessary components, and executes the primary logic of the `lodemaria` package.
-- **Parameters**:
-  - None
-- **Return Value**: None
-- **Behavior**:
-  - Parses command-line arguments using a CLI parser (not detailed here).
-  - Initializes any required components or services.
-  - Executes the main logic of the application, typically involving calling another function to perform computations or data processing.
-- **Error Handling**:
-  - Handles exceptions and errors that may occur during argument parsing, initialization, or execution. Logs errors for further investigation and provides user-friendly error messages if applicable.
+### Module Level Function and Entry Point
 
-## Notable Internal Logic
+#### `main`
 
-- The script relies on a command-line interface (CLI) module (`lodemaria.cli`) to parse arguments.
-- It initializes any necessary components or services required by the application before proceeding with the main logic.
-- Errors during argument parsing, initialization, or execution are caught and handled appropriately, ensuring robust error handling.
+**Parameters:**
+- `args`: A list of command-line arguments passed to the script.
 
-This script is intended for direct use from the command line and serves as a simple launcher for the `lodemaria` application, encapsulating the entry point and basic functionality.
+**Return Value:**
+- None
+
+**Behavior:**
+This function initializes the application, parses the command-line arguments using the `argparse` module, performs any necessary setup or validation, and then calls the main execution point (`main()`).
+
+**Error Handling:**
+- If an error occurs during parsing or argument processing, it will be caught by a try-except block, and appropriate error messages will be displayed.
+
+---
+
+### Class Definition
+
+#### `CLI`
+
+**Public Method:**
+
+##### `parse_args()`
+
+**Parameters:**
+- None
+
+**Return Value:**
+- An instance of `argparse.Namespace` containing the parsed command-line arguments.
+
+**Behavior:**
+This method is responsible for parsing the command-line arguments using the `argparse` module and returning the parsed configuration in an object.
+
+**Error Handling:**
+- If an error occurs during argument parsing, it will be caught by a try-except block, and appropriate error messages will be displayed.
+
+---
+
+### Note on Internal Logic
+
+The `main()` function initializes the application by parsing command-line arguments using the `CLI.parse_args()` method. It then calls the main execution point (`main()`) to perform the desired actions.
+
+---
+
+**Dependencies:**
+
+- The script depends on the `argparse` module for command-line argument parsing.
+- No external dependencies are mentioned in this snippet, as it is a simple Python script without external packages.

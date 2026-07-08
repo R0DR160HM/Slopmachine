@@ -1,36 +1,23 @@
-# streaming.py
+# Live Token-by-Token Rendering of Model Responses
 
-This module provides functionality for live token-by-token rendering of model responses, typically used in a terminal environment. It streams the response into a transient rich Live region rendered as Markdown, allowing users to watch the answer being written in real-time.
+The `lodemaria/streaming.py` file provides a function `stream_markdown()` that streams one chat response, rendering it live within a transient rich Live region. The user watches the answer being written and can interact with the prompt using keystrokes.
 
-## Functions
+### Function Parameters
+- `label`: A string used as an identifier for the chat session.
+- `header` (optional): Rich markup to be shown above the streaming text inside the transient region. Defaults to `None`.
+- `suppress_json` (optional): Boolean to suppress JSON responses that start with "{" or a code fence, which are considered tool calls and not displayed to the user. Defaults to `False`.
+- Additional keyword arguments: Passes through to `lodemaria.llm.stream_chat()` for configuration.
 
-### tail_view(text: str, width: int, max_rows: int) -> str
+### Function Behavior
+1. **Streaming Response**: The response is streamed into a transient rich Live region rendered as Markdown. When the response completes, the region is erased and the caller prints the definitive rendering (or nothing if no output).
+2. **Internal Logic**:
+   - `tail_view(text: str, width: int, max_rows: int)`: Trims the trailing portion of `text` that fits in ~`max_rows` rendered rows. If the content outgrows the screen, it shows a sliding window of its tail.
+   - `stream_markdown(label: str, *, header: str | None = None, suppress_json: bool = False, **chat_kwargs)`: Streams one chat response, rendering it live within a transient rich Live region. The function handles suppression of JSON responses and hides the bottom input prompt during streaming.
 
-#### Parameters
-- `text` (str): The input text from which to extract the trailing portion.
-- `width` (int): The maximum width of a line before it is wrapped.
-- `max_rows` (int): The maximum number of rows that can be displayed in the Live region.
+### Example Usage
+```python
+response = stream_markdown("Chat with ChatGPT", header="User:", suppress_json=True)
+console.print(response)
+```
 
-#### Returns
-- str: The trailing portion of the input text that fits within the specified dimensions.
-
-#### Behavior
-This function calculates the tail of the input text that would fit within a terminal window with the given width and maximum rows. It handles line wrapping, code fences, and ensures that the visible part of the text remains intact by re-opening any cut-off code blocks.
-
-### stream_markdown(label: str, *, header: str | None = None, suppress_json: bool = False, **chat_kwargs) -> str
-
-#### Parameters
-- `label` (str): The label for the chat session.
-- `header` (str | None): Optional rich markup to display above the streaming text. Defaults to `None`.
-- `suppress_json` (bool): If `True`, suppresses any JSON or code fence responses, indicating a likely tool call. Defaults to `False`.
-- **chat_kwargs**: Additional keyword arguments passed to the `stream_chat` function.
-
-#### Returns
-- str: The raw full text of the streamed response.
-
-#### Behavior
-This function streams a chat response token-by-token using the `stream_chat` function and renders it live in a transient rich Live region. It handles hiding the input prompt, calculating the visible part of the response, and updating the Live region accordingly. If `suppress_json` is enabled, it suppresses any responses that begin with "{" or a code fence, indicating a potential tool call.
-
-#### Error Handling
-- The function ensures that the Live region is properly started and stopped using a try-finally block.
-- Any errors during the streaming process are caught, and the Live region is cleaned up before re-raising the exception.
+This code snippet demonstrates how to use the `stream_markdown()` function to receive live updates from a model, handle JSON responses, and control the visibility of the bottom input prompt.
