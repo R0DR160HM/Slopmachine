@@ -1,7 +1,8 @@
 """write_project_documentation: incremental, model-written docs for the
 project in the current working directory.
 
-Every non-gitignored, non-configuration file is hashed into
+Every non-gitignored, non-configuration file — dotfiles and files inside
+dotfolders (.github/, .vscode/, ...) are always ignored — is hashed into
 .lodemaria/index.json (keyed by its path relative to the project root, so the
 project can move or be cloned elsewhere without invalidating the docs). Files whose hash is new or changed
 are fed to the coder model (config.DOC_MODEL), which writes markdown docs
@@ -55,9 +56,9 @@ _NO_DOC_EXTS = {
 }
 
 # Directories never scanned by the fallback walker (used when git is absent).
+# Dot-directories need no listing here — the walker prunes them all.
 _FALLBACK_SKIP_DIRS = {
-    ".git", LODEMARIA_DIR, "node_modules", "__pycache__", ".venv", "venv",
-    ".idea", ".vscode", "dist", "build", "target", ".pytest_cache",
+    "node_modules", "__pycache__", "venv", "dist", "build", "target",
 }
 
 _FENCE_RE = re.compile(r"^```[a-zA-Z-]*\s*\n(.*)\n```\s*$", re.DOTALL)
@@ -113,7 +114,9 @@ def _fallback_files(root: Path) -> list[Path]:
         prefix = "" if rel_dir == "." else rel_dir + "/"
         dirnames[:] = [
             d for d in dirnames
-            if d not in _FALLBACK_SKIP_DIRS and not ignored(prefix + d, d)
+            if not d.startswith(".")
+            and d not in _FALLBACK_SKIP_DIRS
+            and not ignored(prefix + d, d)
         ]
         for name in filenames:
             if not ignored(prefix + name, name):
@@ -146,7 +149,9 @@ def _scan(root: Path) -> dict[str, str]:
         if not path.is_file():  # git may list tracked files deleted from disk
             continue
         rel = path.relative_to(root).as_posix()
-        if rel.split("/", 1)[0] in (".git", LODEMARIA_DIR):
+        # Dotfiles and anything under a dotfolder (.git, .lodemaria, .github,
+        # ...) are never indexed.
+        if any(part.startswith(".") for part in rel.split("/")):
             continue
         if _is_config(path.name):
             continue
@@ -199,11 +204,15 @@ def _group_key(rel: str) -> str:
     return str(p.with_suffix("")) if p.suffix else rel
 
 
+def _documentable(rel: str) -> bool:
+    return PurePosixPath(rel).suffix.lower() not in _NO_DOC_EXTS
+
+
 def _groups(index: dict[str, str]) -> dict[str, dict[str, str]]:
-    """key → {relative path: hash} for documentable (non-stylesheet) files."""
+    """key → {relative path: hash} for documentable files."""
     groups: dict[str, dict[str, str]] = {}
     for rel, digest in index.items():
-        if PurePosixPath(rel).suffix.lower() not in _NO_DOC_EXTS:
+        if _documentable(rel):
             groups.setdefault(_group_key(rel), {})[rel] = digest
     return groups
 
@@ -310,6 +319,17 @@ def write_project_documentation() -> str:
         f"{len(stale)} doc(s) obsoleta(s) removida(s)[/dim]"
     )
 
+    # The index is persisted incrementally — an entry is updated the moment
+    # its doc is written — so an interrupted run resumes where it stopped
+    # instead of re-documenting everything. Start from the old index minus
+    # deleted files, with undocumented files (stylesheets, markdown) already
+    # refreshed since no doc depends on them.
+    persisted = {rel: digest for rel, digest in old_index.items() if rel in index}
+    for rel, digest in index.items():
+        if not _documentable(rel):
+            persisted[rel] = digest
+    _save_index(root, persisted)
+
     failed: list[str] = []
     for i, key in enumerate(todo, 1):
         console.print(f"[bold yellow]📚  ({i}/{len(todo)})[/bold yellow] [cyan]{key}[/cyan]")
@@ -318,14 +338,14 @@ def write_project_documentation() -> str:
             path = _doc_path(root, key)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(doc + "\n", "utf-8")
+            persisted.update(new_groups[key])
         else:
             failed.append(key)
+            # Failed groups stay out of the index so the next run retries them.
+            for rel in new_groups[key]:
+                persisted.pop(rel, None)
             console.print(f"[red]O modelo não gerou documentação para '{key}'.[/red]")
-
-    # Failed groups stay out of the index so the next run retries them.
-    for key in failed:
-        for rel in new_groups[key]:
-            index.pop(rel, None)
+        _save_index(root, persisted)
     documented = [k for k in todo if k not in failed]
 
     project_doc = root / LODEMARIA_DIR / PROJECT_DOC_FILENAME
@@ -334,11 +354,9 @@ def write_project_documentation() -> str:
         console.print("[bold yellow]📖  Gerando a documentação geral do projeto...[/bold yellow]")
         regenerated = _write_project_doc(root, new_groups)
 
-    _save_index(root, index)
-
     lines = [
         f"Project documentation updated under {root / LODEMARIA_DIR}:",
-        f"- {len(index)} file(s) hashed into {INDEX_FILENAME}",
+        f"- {len(persisted)} file(s) hashed into {INDEX_FILENAME}",
         f"- {len(documented)} doc group(s) (re)written in {DOCS_DIRNAME}/",
         f"- {len(stale)} stale doc(s) removed",
         (f"- general documentation regenerated at {PROJECT_DOC_FILENAME}"

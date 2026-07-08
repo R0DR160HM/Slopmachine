@@ -12,7 +12,6 @@ from lodemaria.llm import strip_think
 from lodemaria.terminal import console
 from lodemaria.tools.calculator import calculate
 from lodemaria.tools.display import display_images
-from lodemaria.tools.documentation import write_project_documentation
 from lodemaria.tools.forge import ForgedTool, ForgeError, forge_tool
 from lodemaria.tools.search import (
     format_image_results,
@@ -32,7 +31,6 @@ _REQUIRED_KEYS: dict[str, tuple[str, ...]] = {
     "fetch_url": ("url",),
     "calculate": ("expression",),
     "tool_forge": ("expression",),
-    "write_project_documentation": (),
 }
 
 # Tools forged at runtime, keyed by name. They take a single "input" string
@@ -150,20 +148,6 @@ def _run_tool_forge(call: dict, max_results: int) -> str:
     )
 
 
-def _run_write_project_documentation(call: dict, max_results: int) -> str:
-    console.print("\n[bold yellow]📚  Documentando o projeto...[/bold yellow]")
-    try:
-        summary = write_project_documentation()
-    except Exception as e:
-        console.print(f"[red]Falha ao documentar o projeto: {e}[/red]\n")
-        return (
-            f"write_project_documentation failed: {e}\n\n"
-            "Now answer or make another tool call."
-        )
-    console.print("[dim]Documentação concluída.[/dim]\n")
-    return f"{summary}\n\nNow answer or make another tool call."
-
-
 def _run_forged_tool(call: dict, max_results: int) -> str:
     tool = _forged_tools[call["tool"]]
     argument = str(call.get("input", ""))
@@ -188,7 +172,6 @@ _HANDLERS: dict[str, Callable[[dict, int], str]] = {
     "fetch_url": _run_fetch_url,
     "calculate": _run_calculate,
     "tool_forge": _run_tool_forge,
-    "write_project_documentation": _run_write_project_documentation,
 }
 
 

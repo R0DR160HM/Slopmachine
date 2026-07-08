@@ -29,6 +29,7 @@ from lodemaria.tools import (
     news_search,
     parse_tool_call,
     web_search,
+    write_project_documentation,
 )
 
 MEGABRAIN_RE = re.compile(r"mega\s*brain", re.IGNORECASE)
@@ -134,6 +135,11 @@ class ChatSession:
             self._handle_message(user_input)
 
     def _handle_message(self, user_input: str) -> None:
+        # "docs" alone triggers the documentation writer, no model involved.
+        if user_input.strip().lower() == "docs":
+            self._write_docs(user_input)
+            return
+
         if MEGABRAIN_RE.search(user_input):
             user_input = self._activate_megabrain(user_input)
             if not user_input:
@@ -170,6 +176,20 @@ class ChatSession:
 
         self.messages.append({"role": "user", "content": content})
         self._agent_loop()
+
+    def _write_docs(self, user_input: str) -> None:
+        """Run the documentation writer and record its summary in the history."""
+        console.print("\n[bold yellow]📚  Documentando o projeto...[/bold yellow]")
+        try:
+            summary = write_project_documentation()
+        except Exception as e:
+            console.print(f"[red]Falha ao documentar o projeto: {e}[/red]\n")
+            self.reader.allow()
+            return
+        console.print("[dim]Documentação concluída.[/dim]\n")
+        self.messages.append({"role": "user", "content": user_input})
+        self.messages.append({"role": "assistant", "content": summary})
+        self.reader.allow()
 
     def _activate_megabrain(self, user_input: str) -> str:
         """Switch to the Megabrain model and rewrite the prompt in a more
