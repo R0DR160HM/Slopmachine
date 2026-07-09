@@ -1,40 +1,35 @@
-```markdown
-# lodemaria/tools/documentation.py
+### File: lodemaria/tools/documentation.py
 
-## Purpose and Role
+#### Purpose and Role
 
-`lodemaria/tools/documentation.py` is a script designed to analyze, document, and update the project's source files. The script uses an AI model (configured by `DOC_MODEL`) to generate markdown documentation for each file and a separate generator (`DOC_SYNTH_MODEL`) to compile this documentation into a comprehensive overview of the whole project.
+This script provides an incremental, model-written version of the project documentation. It indexes non-gitignored files, documents new or changed files, and persists the index across runs. The document content is then rendered in real-time to live updates in the terminal.
 
-## File Discovery
+#### Public/Exported Classes
 
-The script identifies non-gitignored files in the current working directory, ignoring dotfiles and those inside dotfolders like `.git`, `.vscode`, etc. It uses `fnmatch` to match patterns defined in `.gitignore` files, ensuring only relevant files are considered.
+1. **\_git_files**: Non-ignored files based on git itself (tracked + untracked that are not excluded).
+2. **\_gitignore_patterns**: Patterns from the root .gitignore.
+3. **\_fallback_files**: Recursively walks excluding `.gitignore` and non-tracked files within the root directory.
 
-## Index Persistence
+#### Notable Internal Logic
 
-The script stores the hash of every file worth indexing in a JSON file named `index.json`. This index is loaded and updated incrementally whenever new or changed files are found. The original hashing mechanism used by Git for tracked files is maintained to keep existing content consistent with git's history.
+- **Hashing Files**: The script hashes each file to ensure uniqueness across different systems.
+- **Doc Processing**: It processes source code files, documents new or changed ones, and persists the index. It also refreshes stylesheets and markdown whenever documentation changes.
+  
+#### When Several Companion Files are Given
 
-## Grouping (Companion Files Documented Together)
+- **Organizing Documentation**: The script organizes companion files into a single unit (one for each project group).
+- **Style Sheets and Markdown**: Stylesheets and markdown are hashed but never documented.
 
-The script organizes documentation into groups based on the path of each file, ensuring that related components are documented together in one place. This helps maintain a clear and organized codebase.
+#### General Documentation
 
-## Model Calls
+- **Project Overview**: A comprehensive overview of the entire project is generated.
+- **Docs for Groups**: Documents are categorized by group, with new documents appearing first in the index.
+- **File Changes**: New files or changes are detected and indexed, then re-written in the index.
+- **Failed Groups**: The script handles groups that may have been deleted or removed during an interrupted run.
 
-- **Strip Fence**: Unwraps any response wrapped entirely in one ``` fence.
-- **Ask Streaming**: Sends a prompt to the model in real-time as it processes the output, rendering it live in the terminal.
+#### Entry Point
 
-## Entry Point
+- **Writing Project Documentation**: Runs the document generation process based on the current folder's structure.
+- **Index Persistence**: Persisted indices are maintained across runs to avoid redundant processing.
 
-The main function `write_project_documentation()` performs the following steps:
-1. Indexes the current directory for documentable files.
-2. Compares the index with an old version (if available) to identify new, changed, or removed groups of files and documents them individually.
-3. Compiles a comprehensive overview of the project using another model (`DOC_SYNTH_MODEL`) and updates the `PROJECT.md` file.
-4. Removes empty directories left by stale-documentation removal.
-
-## Notes
-
-- The script uses the OLLAMA_OPTIONS to customize the behavior of the OpenAI model used for document generation.
-- The index is persisted incrementally, ensuring that existing content remains consistent with git's history.
-
-## Conclusion
-
-By combining efficient file discovery, robust documentation generation, and a comprehensive overview, `lodemaria/tools/documentation.py` helps maintain high-quality code documentation and ensures consistency across the project.
+This documentation is useful for developers who need a quick overview of the project's codebase and any changes over time.

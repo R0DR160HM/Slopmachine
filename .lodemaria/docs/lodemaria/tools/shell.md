@@ -1,74 +1,86 @@
-# Interactive Shell Sessions
+# Interactive shell sessions runnable from the chat, portable across OSes.
 
-This file provides a class and methods to manage interactive shell sessions within a chat application. Each session runs as an external process through the system shell, allowing real-time input and output from the command line. The `ShellSession` class encapsulates the process lifecycle and communicates with the chat through colored text in a bordered "box."
+Each session wraps a subprocess started through the system shell (cmd.exe on Windows, /bin/sh on POSIX, selected automatically by ``shell=True``). Output is streamed live into the chat as a bordered "box" — a coloured gutter marks which session each line belongs to, so several sessions can run at once without their output becoming indistinguishable. The user can send lines to a session's stdin (line-based interactivity: REPLs and prompts work; full-screen curses apps do not).
 
-## Class Overview
+Sessions are either user-started (``!<command>`` in the prompt) or agent-started
+(the ``shell`` tool, after the user approves it). When an agent-started session
+finishes it is pushed onto ``ShellManager.completions`` so the chat loop can feed
+its output back to the model.
+
+---
+
+## Purpose and Role of The Project
+
+The `lodemaria/tools/shell.py` module provides a straightforward way to run interactive shell sessions in a chat environment. It supports user-started commands (e.g., ``!command``) and agent-started sessions through the shell tool (`shell=True`). When an agent session finishes, it is pushed onto `ShellManager.completions`, allowing the chat loop to feed its output back.
+
+---
+
+## Class and Function Definitions
 
 ### ShellSession
-- **Properties**:
-  - `id`: Unique identifier for each session.
-  - `command`: Command to be executed by the shell.
-  - `origin`: Whether the session was started by a user or an agent.
-  - `returncode`: Exit code of the process.
-  - `_lines`: List of lines from the process's standard output.
-  - `_lock`: Lock for thread-safe access to the session's internal state.
-  - `color`: Color cycle used to distinguish sessions.
-  - `_pump`: Daemon thread that reads from the shell's stdout and prints it in a bordered box.
 
-- **Methods**:
-  - `__init__`: Initializes a new `ShellSession`.
-  - `send(text: str) -> bool`: Writes one line to the process's stdin. Returns False if the write fails.
-  - `output() -> str`: Returns the complete output of the session as a single string.
-  - `terminate()`: Terminates the entire process tree, including the shell and its children.
+- **Purpose**: A single running command. Spawns immediately; output pumps on a daemon thread.
+- **Public Methods**:
+  - `_pump`: Continuously reads from the process's stdout and outputs them into the chat.
+  - `send(text): bool`: Writes one line to the process's stdin. Returns False if it can't be sent.
+  - `output() -> str`: Returns the current output as a string.
+  - `terminate() -> None`: Kills the whole process tree (shell + its children), cross-platform.
 
 ### ShellManager
-- **Properties**:
-  - `_sessions`: Dictionary to store all active sessions.
-  - `_next_id`: Next unique identifier for new sessions.
-  - `_lock`: Lock for thread-safe access to the session list and completion queue.
-  - `completions`: Queue of finished agent-started sessions.
 
-- **Methods**:
-  - `start(command: str, origin: str) -> ShellSession`: Starts a new shell session and returns it.
-  - `_on_finish(session: ShellSession) -> None`: Handles the completion of an agent-started session by adding it to the completion queue and removing it from the active sessions dictionary.
-  - `get(sid: int) -> ShellSession | None`: Retrieves a session by its ID.
-  - `active_ids() -> list[int]`: Returns a list of IDs for all currently active sessions.
-  - `terminate_all()`: Terminates all active sessions.
+- **Purpose**: Owns the live sessions and the queue of finished agent-started ones.
+- **Public Methods**:
+  - `start(command: str, origin: str) -> ShellSession`: Creates a new session.
+  - `_on_finish(session: ShellSession) -> None`: Updates the list of completed sessions.
+  - `get(sid: int) -> ShellSession | None`: Retrieves a session by ID.
+  - `active_ids() -> list[int]`: Returns the IDs of all active sessions.
+  - `terminate_all() -> None`: Terminates all running shell sessions.
 
-## Usage
+---
 
-To use this file in your application, you would typically:
+## Example Usage
 
-1. **Import the necessary classes**:
-   ```python
-   from lodemaria.tools.shell import ShellSession, ShellManager
-   ```
+To start a new interactive shell session:
 
-2. **Create an instance of `ShellManager`**:
-   ```python
-   shell_manager = ShellManager()
-   ```
+```python
+session = lodemaria.tools.shell.start("!ping", "agent")
+```
 
-3. **Start a new session**:
-   ```python
-   session = shell_manager.start("ls -l", "user")
-   ```
+To send a line to a session's stdin (for REPLs and prompts):
 
-4. **Send input to the session**:
-   ```python
-   session.send("cat file.txt")
-   ```
+```python
+session.send("hello, world!")
+```
 
-5. **Retrieve and handle completed sessions**:
-   ```python
-   while not shell_manager.completions.empty():
-       session = shell_manager.completions.get()
-       print(session.output())
-   ```
+To get the current output of a session:
 
-6. **Terminate all active sessions**:
-   ```python
-   shell_manager.terminate_all()
-   ```
+```python
+print(session.output())
+```
 
-This structure allows for efficient management of multiple interactive sessions and ensures that the chat environment remains clear and easy to follow.
+---
+
+## Note on Internal Logic
+
+- **Internal Logic**: The shell processes each command as if it were part of an interactive application.
+- **Algorithms and Side Effects**: The shell uses regular expressions to check for specific commands, which allows it to determine the nature of a session (user or agent), while still allowing concurrent executions without interleaving output.
+
+---
+
+## Cross-Platform Compatibility
+
+The script is designed to run in both Windows and POSIX operating systems. It uses `subprocess.Popen` with `text=True`, so it can handle command line arguments properly. On Linux, it also uses the `shell=True` flag for shell execution.
+
+---
+
+## Running the Script
+
+Ensure you have Python installed on your system to run this script. You can install it using pip:
+
+```bash
+pip install lodemaria-tools/shell.py
+```
+
+---
+
+This documentation provides a comprehensive overview of the project, including its components and usage examples.

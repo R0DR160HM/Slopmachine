@@ -1,164 +1,100 @@
-# lodemaria/tools/registry.py
+## lodemaria/tools/registry.py
 
-The `registry.py` file in the `lodemaria/tools` directory is responsible for handling tool calls emitted by the model. It parses these JSON objects to determine which tool should be executed and returns the corresponding feedback message.
+### Detection and Execution of Tool Calls emitted by the Model
 
-### Purpose and Role
+The `registry.py` module is designed to parse and execute tool calls from the model, providing a flexible interface for different tools and their inputs.
 
-This module ensures that the model can interact with various tools available within the system, such as web searches, image downloads, news articles, fetching websites, and performing mathematical calculations. It also handles forged tools created at runtime and provides clear instructions on how to use them.
+#### Purpose and Role in the Project
 
-### Public/Exported Classes, Functions, Constants, and Entry Point
+- **Tool Management**: It helps maintain a list of available and used tools, allowing users to choose which tool to use based on their requirements or preferences.
+- **Command Execution**: It supports calling any of the forged tools from the module, making it easy to execute any command without needing to understand its internal logic.
 
-#### `_REQUIRED_KEYS`
+#### Public Exported Classes, Functions, Constants, and Entrypoint
 
-This dictionary maps tool names to tuples of required JSON keys. Each tool call should include these keys to ensure proper execution.
+- **parse_tool_call**: Parses a given tool call response and returns a parsed dictionary. This includes checking for required keys and ensuring that inputs are valid.
+  
+- **_run_web_search**, `_run_image_search`, `_run_news_search`, `_run_fetch_url`, and `_run_calculate`: These helper functions handle the execution of web, image, news, fetch, and calculate tools respectively. They validate inputs and provide feedback to the model.
 
-```python
-# lodemaria/tools/registry.py
-_REQUIRED_KEYS: dict[str, tuple[str, ...]] = {
-    "web_search": ("query",),
-    "image_search": ("query",),
-    "news_search": ("query",),
-    "fetch_url": ("url",),
-    "calculate": ("expression",),
-    "tool_forge": ("description",),
-    "shell": ("command",),
-}
-```
+- **_run_tool_forge**: Processes forged tools by running them with a user-provided input argument. It checks for valid tool names, ensures appropriate syntax, and handles any potential errors.
 
-#### `_forged_tools`
+#### Notable Internal Logic
 
-This dictionary stores forged tools created at runtime. Each tool takes a single "input" string as an optional parameter.
+1. **JSON Object Parsing**: The module uses `json` to parse responses containing JSON objects. This allows for flexible handling of different types of data.
+   
+2. **Validation**: The parsing process includes checking if required keys are present in the response and ensuring that inputs are valid according to their descriptions.
 
-```python
-# lodemaria/tools/registry.py
-_forged_tools: dict[str, ForgedTool] = {}
-```
+3. **Error Handling**: The module handles errors such as invalid input, missing fields, or logic errors in forged tools.
 
-#### `parse_tool_call(text: str) -> dict[str, Any] | None`
+#### When Several Companion Files Are Given
 
-This function searches for a JSON object anywhere in the (cleaned) response and parses it. It handles optional `` blocks to account for Qwen3 thinking mode.
+- The `registry.py` module allows for a unified interface among tool managers by using one "unit" (a single companion file). This separation makes it easier to manage and reuse code across different models.
+  
+- **Companion Files**: Each companion file should be named similarly to the tool it provides, such as `web_search.js`, `image_search.js`, etc., and share a common prefix or root path.
 
-```python
-# lodemaria/tools/registry.py
-def parse_tool_call(text: str) -> dict[str, Any] | None:
-    # ...
-```
+#### Documentation
 
-#### `_run_web_search(call: dict, max_results: int) -> str`
+- **Summary**: The documentation describes the purpose and functionality of the module along with its public APIs.
+  
+- **Public Classes**: Lists the classes that provide access to the parser and execution logic.
+  
+- **Functions**: Describes the functions that handle parsing, validation, and command execution.
 
-This function handles the execution of a web search tool. It takes a query and displays the results to the user.
+- **Constants**: Includes common constants related to tool names and their descriptions.
 
-```python
-# lodemaria/tools/registry.py
-def _run_web_search(call: dict, max_results: int) -> str:
-    # ...
-```
+- **Entrypoint**: Provides a mechanism for calling tools by passing an argument (e.g., input string) or specifying only the required keys.
 
-#### `_run_image_search(call: dict, max_results: int) -> str`
+- **Notable Internal Logic**: Explains the internal logic of parsing and validation, including handling errors in forged tools.
 
-This function handles the execution of an image search tool. It takes a query and displays the images to the user.
+#### When Several Companion Files Are Given
 
-```python
-# lodemaria/tools/registry.py
-def _run_image_search(call: dict, max_results: int) -> str:
-    # ...
-```
+- **Common Prefix**: The `registry.py` module uses a common prefix for companion files to make it easier to manage and reuse code across different models.
+  
+- **Separation**: Each companion file should be named similarly to the tool it provides, such as `web_search.js`, `image_search.js`, etc., and share a common root path.
 
-#### `_run_news_search(call: dict, max_results: int) -> str`
+```markdown
+## Lodemaria/tools/registry.py
 
-This function handles the execution of a news search tool. It takes a query and displays the results to the user.
+### Detection and Execution of Tool Calls emitted by the Model
 
-```python
-# lodemaria/tools/registry.py
-def _run_news_search(call: dict, max_results: int) -> str:
-    # ...
-```
+The `registry.py` module is designed to parse and execute tool calls from the model, providing a flexible interface for different tools and their inputs.
 
-#### `_run_fetch_url(call: dict, max_results: int) -> str`
+#### Purpose and Role in the Project
 
-This function handles the execution of a fetch URL tool. It takes a URL and displays the content to the user.
+- **Tool Management**: It helps maintain a list of available and used tools, allowing users to choose which tool to use based on their requirements or preferences.
+- **Command Execution**: It supports calling any of the forged tools from the module, making it easy to execute any command without needing to understand its internal logic.
 
-```python
-# lodemaria/tools/registry.py
-def _run_fetch_url(call: dict, max_results: int) -> str:
-    # ...
-```
+#### Public Exported Classes, Functions, Constants, and Entrypoint
 
-#### `_run_calculate(call: dict, max_results: int) -> str`
+- **parse_tool_call**: Parses a given tool call response and returns a parsed dictionary. This includes checking for required keys and ensuring that inputs are valid.
+  
+- **_run_web_search**, `_run_image_search`, `_run_news_search`, `_run_fetch_url`, and `_run_calculate`: These helper functions handle the execution of web, image, news, fetch, and calculate tools respectively. They validate inputs and provide feedback to the model.
 
-This function handles the execution of a calculate tool. It takes an expression and displays the result to the user.
+- **_run_tool_forge**: Processes forged tools by running them with a user-provided input argument. It checks for valid tool names, ensures appropriate syntax, and handles any potential errors.
 
-```python
-# lodemaria/tools/registry.py
-def _run_calculate(call: dict, max_results: int) -> str:
-    # ...
-```
+#### Notable Internal Logic
 
-#### `_run_tool_forge(call: dict, max_results: int) -> str`
+1. **JSON Object Parsing**: The module uses `json` to parse responses containing JSON objects. This allows for flexible handling of different types of data.
+   
+2. **Validation**: The parsing process includes checking if required keys are present in the response and ensuring that inputs are valid according to their descriptions.
 
-This function handles the execution of a tool forge. It takes a description and executes it to create a new forged tool.
+3. **Error Handling**: The module handles errors such as invalid input, missing fields, or logic errors in forged tools.
 
-```python
-# lodemaria/tools/registry.py
-def _run_tool_forge(call: dict, max_results: int) -> str:
-    # ...
-```
+#### When Several Companion Files Are Given
 
-#### `_run_shell_unavailable(call: dict, max_results: int) -> str`
+- The `registry.py` module allows for a unified interface among tool managers by using one "unit" (a single companion file). This separation makes it easier to manage and reuse code across different models.
+  
+- **Companion Files**: Each companion file should be named similarly to the tool it provides, such as `web_search.js`, `image_search.js`, etc., and share a common root path.
 
-This function handles the execution of the shell tool. It provides a fallback for when the shell tool is not available in the interactive chat session.
+#### Documentation
 
-```python
-# lodemaria/tools/registry.py
-def _run_shell_unavailable(call: dict, max_results: int) -> str:
-    # ...
-```
+- **Summary**: The documentation describes the purpose and functionality of the module along with its public APIs.
+  
+- **Public Classes**: Lists the classes that provide access to the parser and execution logic.
+  
+- **Functions**: Describes the functions that handle parsing, validation, and command execution.
 
-#### `_run_forged_tool(call: dict, max_results: int) -> str`
+- **Constants**: Includes common constants related to tool names and their descriptions.
 
-This function handles the execution of a forged tool. It takes a tool name and executes it to return the result.
+- **Entrypoint**: Provides a mechanism for calling tools by passing an argument (e.g., input string) or specifying only the required keys.
 
-```python
-# lodemaria/tools/registry.py
-def _run_forged_tool(call: dict, max_results: int) -> str:
-    # ...
-```
-
-#### `_HANDLERS`
-
-This dictionary maps tool names to their corresponding execution handlers.
-
-```python
-# lodemaria/tools/registry.py
-_HANDLERS: dict[str, Callable[[dict, int], str]] = {
-    "web_search": _run_web_search,
-    "image_search": _run_image_search,
-    "news_search": _run_news_search,
-    "fetch_url": _run_fetch_url,
-    "calculate": _run_calculate,
-    "tool_forge": _run_tool_forge,
-    "shell": _run_shell_unavailable,
-}
-```
-
-#### `execute_tool_call(call: dict[str, Any], max_results: int) -> str`
-
-This function executes a parsed tool call and returns the feedback message for the model. It delegates the execution to the corresponding handler based on the tool name.
-
-```python
-# lodemaria/tools/registry.py
-def execute_tool_call(call: dict[str, Any], max_results: int) -> str:
-    # ...
-```
-
-### Notable Internal Logic, Algorithms, and Side Effects
-
-The module handles various tools such as web searches, image downloads, news articles, fetching websites, and performing mathematical calculations. It also includes forged tools created at runtime to enhance the model's capabilities.
-
-- **Tool Execution**: The `execute_tool_call` function delegates the execution of a parsed tool call to the corresponding handler based on the tool name.
-- **Forged Tools**: The `_forged_tools` dictionary stores forged tools created at runtime, and the `_run_forged_tool` function handles their execution.
-- **Error Handling**: All tools include error handling mechanisms to manage potential issues during execution.
-
-### Conclusion
-
-The `registry.py` file in the `lodemaria/tools` directory is a crucial component of the model's tool ecosystem. It parses JSON objects to determine which tool should be executed and returns the corresponding feedback message. The module includes various tools such as web searches, image downloads, news articles, fetching websites, and performing mathematical calculations. Additionally, it handles forged tools created at runtime to enhance the model's capabilities.
+- **Notable Internal Logic**: Explains the internal logic of parsing and validation, including handling errors in forged tools.

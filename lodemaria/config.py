@@ -6,7 +6,11 @@ DEFAULT_MODEL = "qwen2.5:1.5b"
 MEGABRAIN_MODEL = "qwen2.5:7b"
 
 # Model used by tool_forge to write new tools in Python.
-FORGE_MODEL = "qwen2.5-coder:1.5b"
+FORGE_MODEL = "qwen2.5-coder:7b"
+
+# Models forced by --slop: the tiniest tier, for fast low-resource runs.
+SLOP_MODEL = "qwen2.5:0.5b"
+SLOP_FORGE_MODEL = "qwen2.5-coder:0.5b"
 
 # Model used by write_project_documentation to write the per-file docs.
 DOC_MODEL = "qwen2.5-coder:1.5b"

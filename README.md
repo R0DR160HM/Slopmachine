@@ -31,6 +31,7 @@ research e forja ferramentas novas em tempo de execução.
 pip install -r requirements.txt
 python -m lodemaria                      # ou: python lodemaria.py
 python -m lodemaria --model qwen2.5:3b --results 5
+python -m lodemaria --slop               # modelos mínimos (0.5b), veja abaixo
 python -m lodemaria Qual é o seu nome?   # já envia o primeiro prompt
 ```
 
@@ -106,8 +107,14 @@ Feito isso, basta digitar `lodemaria` em qualquer terminal.
 lodemaria                     # inicia o chat
 lodemaria --help              # opções
 lodemaria -m qwen2.5:3b -r 8  # modelo e nº de resultados de busca
+lodemaria --slop              # modo slop: modelos mínimos
 lodemaria Qual é o seu nome?  # primeiro prompt direto
 ```
+
+Com `--slop`, o chat e a síntese de documentação usam `qwen2.5:0.5b`, e a
+forja de ferramentas e a documentação por arquivo usam `qwen2.5-coder:0.5b` —
+os menores modelos da família, para máquinas fracas ou respostas rápidas (com
+qualidade proporcional). A flag sobrepõe `--model`.
 
 O executável pode ser copiado para qualquer máquina do **mesmo** sistema
 operacional (mesma arquitetura, 64 bits) — não precisa de Python instalado.

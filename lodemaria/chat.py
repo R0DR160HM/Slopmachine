@@ -35,7 +35,7 @@ from lodemaria.tools import (
     web_search,
     write_project_documentation,
 )
-from lodemaria.tools.shell import SHELL_OUTPUT_MAX_CHARS, ShellManager
+from lodemaria.tools.shell import SHELL_OUTPUT_MAX_CHARS, ShellManager, echo_payload
 
 MEGABRAIN_RE = re.compile(r"mega\s*brain", re.IGNORECASE)
 BRACKET_TERM_RE = re.compile(r"\[([^\]]+)\]")
@@ -436,7 +436,7 @@ class ChatSession:
             # The shell tool needs user approval and the session manager, both
             # of which live here — so it is handled in the chat layer instead of
             # the stateless tool registry.
-            if tool_call.get("tool") == "shell":
+            if tool_call.get("tool") == "shell_of_last_resort":
                 feedback = self._run_agent_shell(tool_call)
             else:
                 feedback = execute_tool_call(tool_call, self.max_results)
@@ -496,6 +496,18 @@ class ChatSession:
         command = str(call.get("command", "")).strip()
         if not command:
             return "The shell call had an empty 'command'. Provide the command to run."
+
+        # A bare echo is the model trying to talk through the shell — there is
+        # nothing to execute. Skip the approval prompt (and the terminal clear)
+        # and hand the text straight back as if the command had run.
+        echoed = echo_payload(command)
+        if echoed is not None:
+            console.print("[dim]🪄  echo interceptado — nada foi executado[/dim]\n")
+            return (
+                f"The user accepted the command: {command}\n"
+                f"It ran and printed:\n{echoed}\n\n"
+                "Now answer or make another tool call."
+            )
 
         console.print(Panel(
             f"[bold white]$ {command}[/]",

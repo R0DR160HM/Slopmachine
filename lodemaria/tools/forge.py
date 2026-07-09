@@ -14,7 +14,8 @@ import re
 from dataclasses import dataclass
 from typing import Callable
 
-from lodemaria.config import FORGE_MODEL, OLLAMA_OPTIONS
+from lodemaria import config
+from lodemaria.config import OLLAMA_OPTIONS
 from lodemaria.llm import strip_think
 from lodemaria.prompts import FORGE_SYSTEM_PROMPT
 from lodemaria.streaming import stream_markdown
@@ -59,7 +60,7 @@ def forge_tool(description: str) -> ForgedTool:
     """
     raw = stream_markdown(
         "Forjando ferramenta",
-        model=FORGE_MODEL,
+        model=config.FORGE_MODEL,
         messages=[
             {"role": "system", "content": FORGE_SYSTEM_PROMPT},
             {"role": "user", "content": f"Tool request: {description}"},

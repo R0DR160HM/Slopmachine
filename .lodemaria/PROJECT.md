@@ -1,74 +1,84 @@
-# Lodemaria Project Documentation
+Here's the comprehensive overview of the project, covering both its structure and key components:
 
-## Overview
-Lodemar.IA is a Python package designed for interacting with the Ollama model, an AI capable of text-based interactions and web searches. The project comprises several modules that facilitate different functionalities such as command-line interaction, deep research mode, tool management, file documentation generation, and more.
+### Overview
 
-### Entry Point: Lodemaria
-The primary entry point for the Lodemaria package is the `lodemaria.py` script. This script can be executed directly to run various commands provided by the package. It supports one or no parameters, depending on the specific command being used.
+**Project Structure:**
+- `build`: Entry point that uses `build.ps1` to build a self-contained single-file executable (`lodemaria.exe`).
+  - Scripts inside this directory:
+    - `setup.py`
+    - `build.sh`
+      - Code for the entry point and other utility functions.
+    - `config.py` contains default model names, results count, and Ollama server setup.
+    - `cli` contains command-line interface functionality.
 
-#### Public/Exported Classes and Functions
+- `lodemaria`: Main module that includes various helper scripts like `ChatSession`, `prompts`, `tools`, and more.
+  - These contain functions for interacting with the user's messages, managing tools calls, parsing input, etc.
 
-- **`CLI`:**
-  - Responsible for parsing arguments passed during execution.
+### Modules and Functions
+
+1. **`lodemaria.tools`**:
+   - Contains public export classes (`_eval_node`, `calculate`, `display_images`) and public methods (`parse_tool_call`).
+   - Provides safe arithmetic evaluation via an AST based on user-provided inputs.
+   - Handles fetching images, news, web page searches, etc.
+
+2. **`lodemaria.cli`**:
+   - Entry point for interacting with the Ollama model.
+   - Contains helper functions (`stream_chat`, `ask`, `trim_messages`).
+   - Main loop that handles user input and interactions with the model.
+
+3. **`lodemaria/chat`**: 
+   - A main script for direct command-line interaction.
+   - Handles various command-line arguments for interaction with the model (e.g., query, results count).
+
+4. **Other Components**:
+   - `config.py`: Contains system-specific settings like model names and dependencies.
+   - `prompts`: Defines commands to ask questions from the model and provide responses.
+
+### Key Features
+
+- **Chat Functionality**: Enables users to chat with an Ollama model through a series of prompts, interactions, and responses.
+  - Uses a public helper script (`ChatSession`) for direct command-line interaction.
   
-- **`main`:**
-  - Initializes the application and calls `CLI.parse_args()` to handle user inputs efficiently.
+- **Model Management**: Allows easy interaction with various models like `llm`, `ollama install` (for automatic installation), and more.
 
-### Module-Level Function and Entry Point
-The module-level function, `main()`, initializes Lodemaria by executing the CLI entry point (`CLI.main()`). If no specific command is provided, it defaults to a help message. 
+### Usage
 
-#### Internal Logic
+1. **Launching the Chat Session**:
+   ```bash
+   python -m lodemaria.chat
+   ```
 
-- **Chat Session Management:**
-  - The main functionality for initiating chat sessions with the model is handled by the `ChatSession` class.
+2. **User Input Handling**:
+   - Supports input prompts, navigations through tools, and responses generation.
+   - Example: `python -m lodemaria.chat --model quwen2.5 --results 10`
+   - This example demonstrates using the main entry point (`ChatSession`).
 
-- **System Prompts:**
-  - System prompts are managed via the `DEEP_SUBTOPICS`, `SYSTEM_PROMPT_TEMPLATE`, and related configurations to guide user queries in a structured manner.
+3. **Command-Line Parameters (CLI)**:
+   ```bash
+   python -m lodemaria.cli
+   ```
 
-### Configuration
-The package relies on configuration files stored in `lodemaria/config.py`. This file contains constants that define model settings, such as default models for different contexts, maximum results per query, and other relevant options. 
+- **Dependencies**: Uses `argparse`, `json`, `lru-cache`, and others for command-line argument parsing.
 
-## Architecture
-Lodemar.IA is composed of several major components:
+### Example Usage:
 
-- **CLI Module:** Manages command-line interaction with the Lodemaria package.
-- **Chat Session Management:** Handles live chat sessions with user input and responses from the Ollama model.
-- **Tool Execution:** Provides a framework for executing various tools available within the system, such as fetching web pages or performing calculations.
-- **Deep Research Mode:** A specialized mode that performs multi-phase research operations to provide comprehensive and in-depth answers.
+```python
+from lodemaria.chat import ChatSession
 
-### Key Concepts and Flows
-For new developers, understanding these key concepts is crucial:
+# Initialize the session with a specific model, max results, and ensure server is reachable.
+chat = ChatSession(
+    "llama2",
+    100,
+)
 
-1. **CLI (Command Line Interface)**
-   - The `cli.py` module provides command-line entry points for interacting with the package.
-   
-2. **Chat Sessions**
-   - Lodemaria facilitates live chat sessions where users can query the Ollama model and receive responses.
+# Start the chat session.
+chat.run()
+```
 
-3. **Tools and Webpages**
-   - Tools are used to perform specific tasks such as fetching web pages, performing calculations, or executing custom Python code. The system supports these tools seamlessly.
-   
-4. **Deep Research Mode**
-   - This feature enables the generation of detailed research reports based on user queries by leveraging multiple steps, each informed by feedback from the model.
+This example shows how to interact with the Ollama model using the CLI.
 
-### Entry Points and Setup Instructions
-To set up Lodemaria:
+### Important Notes
 
-1. Ensure that all required dependencies (e.g., ollama, ddgs, rich) are installed.
-2. Execute the `lodemaria.py` script to start the package with or without specific command-line arguments.
+- This project assumes that `argparse` and other modules are installed, as they're not included in standard Python distributions like PyCharm, VSCode, or IDEs by default. You might need to install these packages via pip if you are not currently using one.
 
-## Documentation for Specific Modules
-
-### lodemaria/chat
-- The `chat.py` file contains classes and functions necessary for managing chat sessions between users and the AI model.
-- It includes functionality for handling user inputs, routing commands, managing shell sessions, and executing tools from a list of available options.
-
-### lodemaria/tools/forge
-- The tool forge module allows dynamically generating new tools based on descriptions provided by the model, which enhances the capabilities of the system dynamically.
-
-### lodemaria/tools/search
-- This module handles web search functionality. It leverages DuckDuckGo to perform searches and extracts readable text content from HTML pages using BeautifulSoup or regular expressions for stripping unwanted tags and entities.
-
-## Conclusion
-
-Lodemar.IA is a comprehensive tool for integrating language models like Ollama into applications, providing robust support for live chat sessions, versatile tool execution, and powerful research capabilities. Understanding the architecture and key components of this project will enable developers to effectively use it in their own projects.
+This documentation provides a comprehensive overview of the project's structure, key components, usage examples, dependencies, and best practices for interacting with the model.

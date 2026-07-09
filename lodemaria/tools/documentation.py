@@ -24,11 +24,10 @@ import re
 import subprocess
 from pathlib import Path, PurePosixPath
 
+from lodemaria import config
 from lodemaria.config import (
     DOC_GROUP_MAX_CHARS,
-    DOC_MODEL,
     DOC_PROJECT_MAX_CHARS,
-    DOC_SYNTH_MODEL,
     OLLAMA_OPTIONS,
 )
 from lodemaria.llm import strip_think
@@ -256,7 +255,7 @@ def _document_group(root: Path, key: str, members: dict[str, str]) -> str:
     if len(source) > DOC_GROUP_MAX_CHARS:
         source = source[:DOC_GROUP_MAX_CHARS] + "\n…[content truncated]"
     return _ask_streaming(
-        DOC_MODEL, DOC_FILE_SYS, source,
+        config.DOC_MODEL, DOC_FILE_SYS, source,
         f"Documentando {key}", f"[bold cyan]📄  {key}[/bold cyan]",
     )
 
@@ -275,7 +274,7 @@ def _write_project_doc(root: Path, groups: dict[str, dict[str, str]]) -> bool:
     if len(material) > DOC_PROJECT_MAX_CHARS:
         material = material[:DOC_PROJECT_MAX_CHARS] + "\n…[content truncated]"
     overview = _ask_streaming(
-        DOC_SYNTH_MODEL, DOC_PROJECT_SYS, material,
+        config.DOC_SYNTH_MODEL, DOC_PROJECT_SYS, material,
         "Documentação geral", f"[bold cyan]📖  {PROJECT_DOC_FILENAME}[/bold cyan]",
     )
     if not overview:

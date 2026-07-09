@@ -16,12 +16,32 @@ its output back to the model.
 
 import os
 import queue
+import re
 import signal
 import subprocess
 import threading
 from typing import Callable
 
 _IS_WINDOWS = os.name == "nt"
+
+# Commands that only print text ("echo ..." / "clear && echo ..."), which small
+# models emit when they try to answer the user through the shell.
+_ECHO_ONLY_RE = re.compile(r"^(?:clear\s*&&\s*)?echo\b\s*(.*)$", re.DOTALL)
+
+
+def echo_payload(command: str) -> str | None:
+    """The text an ``echo``/``clear && echo`` command would print, unquoted.
+
+    Returns None when the command is anything other than a bare echo, meaning
+    it must actually run.
+    """
+    match = _ECHO_ONLY_RE.match(command.strip())
+    if not match:
+        return None
+    payload = match.group(1).strip()
+    if len(payload) >= 2 and payload[0] == payload[-1] and payload[0] in "\"'":
+        payload = payload[1:-1]
+    return payload
 
 from lodemaria.terminal import console
 

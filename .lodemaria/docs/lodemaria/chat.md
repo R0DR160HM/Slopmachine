@@ -1,75 +1,56 @@
-# lodemaria/chat.py
+The interactive chat session in Lodemaria enables users to interact with a sophisticated language model through a series of tools and commands. The session includes user input, navigates between different prompts, executes tools, and receives feedback on their interactions. Here's a detailed documentation for the `ChatSession` class:
 
-The interactive chat session: user input → (tools) → model → answer.
+### **Class Summary**
 
-## Purpose and Role
+The `ChatSession` class encapsulates a full interactive chat experience: users can input text, navigate through available tools, interact with the model, and receive feedback on their responses.
 
-This module manages the interactive chat experience with a large language model. It includes functions to handle user input, route commands, manage shell sessions, and execute tools on the server. The chat session ensures that user input is processed correctly, tool calls are handled efficiently, and the backend connection is managed gracefully.
+**Key Features of the Class:**
 
-## Public/Exported Classes, Functions, Constants, and Entrypoints
+1. **Initialization:** The session starts by initializing with the specified model, maximum number of results, and whether to ensure the Ollama server is reachable.
+2. **User Input Handling:** Users can input messages, which are processed based on the specified rules (e.g., image search or news search).
+3. **Model Call Management:** After each input, a new tool call is initiated. The model responds with a feedback message and updates the session status accordingly.
+4. **Feedback Reception:** The model provides a summary of its output as part of its response.
 
-### ChatSession Class
-- **Constructor**:
-  - `__init__(self, model: str, max_results: int, ensure_server=None)`: Initializes the chat session with a specified model, maximum results per search, and an optional function to ensure the server is reachable.
-- **run(self, initial_prompt: str = "") -> None**: Starts the chat loop, handling user input, routing commands, managing shell sessions, and executing tools.
+### **Methods**
 
-### InputReader Class
-- **start(self) -> None**: Start the interactive prompt reader.
-- **allow(self) -> None**: Allow input to be processed by the reader.
-- **lines.get(timeout=0.2)**: Get a line from the reader with a timeout.
+#### `run(self, initial_prompt: str = "")`
 
-### ShellManager Class
-- **start(command: str, origin="user") -> Session**: Start a new shell session and focus it. Returns the session object.
-- **terminate_all(self) -> None**: Terminate all active shell sessions.
+- **Purpose:** Initializes the chat session, allowing interaction and managing user input.
+- **Parameters:**
+  - `initial_prompt`: Optional prompt to start with. If not provided, the session starts with a simple "quit" message.
+- **Returns:**
+  - No return value.
 
-### Message Class
-- **role**: The role of the message (e.g., "user" or "assistant").
-- **content**: The content of the message.
+#### `_stream_assistant(self)`
 
-### parse_tool_call(assistant_text: str) -> dict or None**: Parse a tool call from the assistant's response.
+- **Purpose:** Continuously stream one assistant turn, transparently (re)starting the Ollama server and retrying once if the backend connection drops.
+- **Parameters:**
+  - `return`: The result of the current tool call, which is used for summary generation.
 
-### execute_tool_call(tool_call: dict, max_results: int) -> str**: Execute a tool on the model and return the result.
+#### `_agent_loop(self)`
 
-### display_images(img_results: list[Result]) -> None**: Display image results.
-- **format_image_results(img_results: list[Result]) -> str**: Format image results for rendering.
-- **image_search(term: str, max_results: int) -> list[Result]**: Search for images related to a term.
-- **news_search(term: str, max_results: int) -> list[Result]**: Search for news articles related to a term.
+- **Purpose:** Main loop to handle user input and interactions with the model.
+- **Parameters:**
+  - No parameters.
+- **Returns:**
+  - No return value.
 
-### web_search(term: str, max_results: int) -> list[Result]**: Search for web pages related to a term.
-- **parse_tool_call(assistant_text: str) -> dict or None**: Parse a tool call from the assistant's response.
+### **Usage**
 
-### write_project_documentation() -> str**: Run the documentation writer and record its summary in the history.
-- **ShellManager Class**
-  - **start(command: str, origin="user") -> Session**: Start a new shell session and focus it. Returns the session object.
-  - **terminate_all(self) -> None**: Terminate all active shell sessions.
+To use this class, you can start by creating an instance of `ChatSession` and calling its methods as needed. For example:
 
-### ChatSession Class
-- **run(self, initial_prompt: str = "") -> None**: Starts the chat loop, handling user input, routing commands, managing shell sessions, and executing tools.
-- **InputReader Class**
-  - **start(self) -> None**: Start the interactive prompt reader.
-  - **allow(self) -> None**: Allow input to be processed by the reader.
-  - **lines.get(timeout=0.2)**: Get a line from the reader with a timeout.
+```python
+from lodemaria.chat import ChatSession
 
-### ShellManager Class
-- **start(command: str, origin="user") -> Session**: Start a new shell session and focus it. Returns the session object.
-- **terminate_all(self) -> None**: Terminate all active shell sessions.
+# Initialize the session with a default model, max results, and ensure server is reachable
+chat = ChatSession(
+    MEGABRAIN_MODEL,
+    100,
+    # Ensure the Ollama server is reachable
+)
 
-### Message Class
-- **role**: The role of the message (e.g., "user" or "assistant").
-- **content**: The content of the message.
+# Main loop to handle user input and interactions with the model
+chat.run()
+```
 
-### parse_tool_call(assistant_text: str) -> dict or None**: Parse a tool call from the assistant's response.
-
-### execute_tool_call(tool_call: dict, max_results: int) -> str**: Execute a tool on the model and return the result.
-
-### display_images(img_results: list[Result]) -> None**: Display image results.
-- **format_image_results(img_results: list[Result]) -> str**: Format image results for rendering.
-- **image_search(term: str, max_results: int) -> list[Result]**: Search for images related to a term.
-- **news_search(term: str, max_results: int) -> list[Result]**: Search for news articles related to a term.
-
-### web_search(term: str, max_results: int) -> list[Result]**: Search for web pages related to a term.
-- **parse_tool_call(assistant_text: str) -> dict or None**: Parse a tool call from the assistant's response.
-
-### write_project_documentation() -> str**: Run the documentation writer and record its summary in the history.
-
-This module provides robust support for an interactive chat experience with a large language model, including seamless handling of multiple tools, seamless integration with shell sessions, and efficient management of the backend connection.
+This setup allows users to engage in interactive conversations, manage their preferences, and interact with a sophisticated language model through the chat experience.

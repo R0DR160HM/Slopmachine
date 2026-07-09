@@ -31,7 +31,7 @@ _REQUIRED_KEYS: dict[str, tuple[str, ...]] = {
     "fetch_url": ("url",),
     "calculate": ("expression",),
     "tool_forge": ("expression",),
-    "shell": ("command",),
+    "shell_of_last_resort": ("command",),
 }
 
 # Tools forged at runtime, keyed by name. They take a single "input" string
@@ -182,7 +182,7 @@ _HANDLERS: dict[str, Callable[[dict, int], str]] = {
     "fetch_url": _run_fetch_url,
     "calculate": _run_calculate,
     "tool_forge": _run_tool_forge,
-    "shell": _run_shell_unavailable,
+    "shell_of_last_resort": _run_shell_unavailable,
 }
 
 

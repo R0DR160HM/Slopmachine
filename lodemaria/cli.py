@@ -14,11 +14,13 @@ import sys
 import time
 from importlib.util import find_spec
 
+from lodemaria import config
 from lodemaria.config import (
     DEFAULT_MAX_RESULTS,
     DEFAULT_MODEL,
-    FORGE_MODEL,
     MEGABRAIN_MODEL,
+    SLOP_FORGE_MODEL,
+    SLOP_MODEL,
 )
 
 REQUIRED_PACKAGES = ("ollama", "ddgs", "rich")
@@ -66,6 +68,13 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_MAX_RESULTS,
         help=f"Max search results per query (default: {DEFAULT_MAX_RESULTS})",
+    )
+    parser.add_argument(
+        "--slop",
+        action="store_true",
+        help=f"Use the tiniest models: {SLOP_MODEL} for chat and doc synthesis, "
+             f"{SLOP_FORGE_MODEL} for tool forging and per-file docs "
+             "(overrides --model)",
     )
     parser.add_argument(
         "prompt",
@@ -176,7 +185,7 @@ def _ensure_models(chat_model: str) -> None:
     visible during the download.
     """
     installed = _installed_models()
-    needed = dict.fromkeys((chat_model, MEGABRAIN_MODEL, FORGE_MODEL))
+    needed = dict.fromkeys((chat_model, MEGABRAIN_MODEL, config.FORGE_MODEL))
     for model in needed:
         if _canonical(model) in installed:
             continue
@@ -245,6 +254,13 @@ def _stop(proc: subprocess.Popen) -> None:
 def main() -> None:
     _force_utf8_output()
     args = _parse_args()
+    if args.slop:
+        args.model = SLOP_MODEL
+        # forge.py and documentation.py read these through the config module
+        # at call time, so overriding the attributes here reaches every call.
+        config.FORGE_MODEL = SLOP_FORGE_MODEL
+        config.DOC_MODEL = SLOP_FORGE_MODEL
+        config.DOC_SYNTH_MODEL = SLOP_MODEL
     _check_dependencies()
 
     # Imported only after the dependency check — these pull in rich/ollama.
