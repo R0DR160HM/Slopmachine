@@ -179,13 +179,24 @@ def _canonical(name: str) -> str:
 
 
 def _ensure_models(chat_model: str) -> None:
-    """Pull any model the app needs (chat, megabrain, forge) that is missing.
+    """Pull every model the app can use that is missing, so nothing has to be
+    downloaded mid-session: chat, megabrain, tool-forge, and the two
+    documentation models (per-file docs + PROJECT.md synthesis).
+
+    The doc/forge models are read from `config` at call time so that a --slop
+    run (which overrides them before this is called) pulls the tiny tier.
 
     `ollama pull` runs attached to the terminal so its own progress bar is
     visible during the download.
     """
     installed = _installed_models()
-    needed = dict.fromkeys((chat_model, MEGABRAIN_MODEL, config.FORGE_MODEL))
+    needed = dict.fromkeys((  # dict.fromkeys dedupes while keeping order
+        chat_model,
+        MEGABRAIN_MODEL,
+        config.FORGE_MODEL,
+        config.DOC_MODEL,
+        config.DOC_SYNTH_MODEL,
+    ))
     for model in needed:
         if _canonical(model) in installed:
             continue
