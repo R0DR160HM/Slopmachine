@@ -49,6 +49,21 @@ def _is_connection_error(error: Exception) -> bool:
     return any(m in str(error).lower() for m in _CONN_ERR_MARKERS)
 
 
+# Fenced code blocks whose language marks them as a shell command.
+_SHELL_LANGS = {"sh", "bash", "shell", "zsh"}
+_CODE_BLOCK_RE = re.compile(r"```([^\n`]*)\r?\n(.*?)```", re.DOTALL)
+
+
+def _sole_shell_command(text: str) -> str | None:
+    """The command inside the answer's single shell code block, or None when it
+    doesn't contain exactly one such block."""
+    commands = []
+    for lang, body in _CODE_BLOCK_RE.findall(strip_think(text)):
+        if lang.strip().lower() in _SHELL_LANGS and body.strip():
+            commands.append(body.strip())
+    return commands[0] if len(commands) == 1 else None
+
+
 def pre_search_brackets(user_input: str, max_results: int) -> tuple[str, str]:
     """For each [term] in user_input, run searches before involving the model.
 
@@ -431,7 +446,14 @@ class ChatSession:
                 console.print("[bold green]Lodemar.ia:[/bold green]")
                 console.print(Markdown(strip_think(assistant_text)))
                 console.print()
-                return
+                # Proactive: if the answer proposes exactly one shell command,
+                # offer to run it — as if the agent had requested the shell tool.
+                command = _sole_shell_command(assistant_text)
+                if command is None:
+                    return
+                feedback = self._run_agent_shell({"command": command})
+                self.messages.append({"role": "user", "content": feedback})
+                continue
 
             # The shell tool needs user approval and the session manager, both
             # of which live here — so it is handled in the chat layer instead of
