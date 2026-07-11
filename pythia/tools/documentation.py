@@ -485,33 +485,45 @@ def _render_txt(jar: Path, puml: str) -> str:
 _PUML_MENTION_RE = re.compile(r"[^\s`'\"()\[\]]+\.puml")
 
 
-def show_mentioned_diagrams(text: str) -> None:
-    """Render every .puml file mentioned in `text` (and present under
-    .pythia/) as ASCII art in the chat. Anything that cannot be found or
-    rendered is silently skipped."""
+def show_answer_diagrams(text: str) -> None:
+    """Render the diagrams an assistant answer carries as ASCII art in the
+    chat: every mentioned .puml file found under .pythia/, plus any PlantUML
+    block (@start...@end) written directly in the answer. Anything that
+    cannot be found or rendered is silently skipped."""
     jar = _plantuml_jar()
-    docs_root = Path.cwd() / PYTHIA_DIR
-    if jar is None or not docs_root.is_dir():
+    if jar is None:
         return
-    shown: set[Path] = set()
-    for mention in _PUML_MENTION_RE.findall(text):
-        name = PurePosixPath(mention.replace("\\", "/")).name
-        try:
-            matches = sorted(p for p in docs_root.rglob(name) if p.is_file())
-        except OSError:
-            continue
-        for path in matches:
-            if path in shown:
-                continue
-            shown.add(path)
+    rendered: set[str] = set()
+
+    def show(puml: str, header: str | None = None) -> None:
+        txt = _render_txt(jar, puml)
+        if txt and txt not in rendered:
+            rendered.add(txt)
+            if header:
+                console.print(f"[bold cyan]🧩  {header}[/bold cyan]")
+            console.print(Text(txt))
+
+    docs_root = Path.cwd() / PYTHIA_DIR
+    if docs_root.is_dir():
+        seen: set[Path] = set()
+        for mention in _PUML_MENTION_RE.findall(text):
+            name = PurePosixPath(mention.replace("\\", "/")).name
             try:
-                puml = path.read_text("utf-8")
+                matches = sorted(p for p in docs_root.rglob(name) if p.is_file())
             except OSError:
                 continue
-            txt = _render_txt(jar, puml)
-            if txt:
-                console.print(f"[bold cyan]🧩  {name}[/bold cyan]")
-                console.print(Text(txt))
+            for path in matches:
+                if path in seen:
+                    continue
+                seen.add(path)
+                try:
+                    show(path.read_text("utf-8"), header=name)
+                except OSError:
+                    continue
+
+    # PlantUML the answer wrote inline is rendered the same way.
+    for block in _PLANTUML_BLOCK_RE.findall(text):
+        show(block)
 
 
 def _render_svgs(jar: Path | None, pumls: list[Path]) -> int:

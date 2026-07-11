@@ -32,7 +32,7 @@ from pythia.tools import (
     image_search,
     news_search,
     parse_tool_calls,
-    show_mentioned_diagrams,
+    show_answer_diagrams,
     web_search,
     write_project_documentation,
 )
@@ -460,9 +460,10 @@ class ChatSession:
                 console.print("[bold green]Pyth.IA:[/bold green]")
                 console.print(Markdown(strip_think(assistant_text)))
                 console.print()
-                # An answer that mentions .puml diagrams gets them rendered as
-                # ASCII art right below it (silently skipped when not possible).
-                show_mentioned_diagrams(strip_think(assistant_text))
+                # An answer that mentions .puml files or writes PlantUML inline
+                # gets the diagrams rendered as ASCII art right below it
+                # (silently skipped when not possible).
+                show_answer_diagrams(strip_think(assistant_text))
                 # Proactive: if the answer proposes exactly one shell command,
                 # offer to run it — as if the agent had requested the shell tool.
                 command = _sole_shell_command(assistant_text)
