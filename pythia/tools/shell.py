@@ -43,7 +43,7 @@ def echo_payload(command: str) -> str | None:
         payload = payload[1:-1]
     return payload
 
-from lodemaria.terminal import console
+from pythia.terminal import console
 
 # Gutter colour cycled per session id, so concurrent sessions stay legible.
 _COLORS = ("cyan", "green", "magenta", "yellow", "blue", "red")

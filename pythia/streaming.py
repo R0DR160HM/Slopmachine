@@ -17,8 +17,8 @@ from rich.live import Live
 from rich.markdown import Markdown
 from rich.text import Text
 
-from lodemaria.llm import stream_chat, visible_text
-from lodemaria.terminal import console, prompt_area
+from pythia.llm import stream_chat, visible_text
+from pythia.terminal import console, prompt_area
 
 
 def tail_view(text: str, width: int, max_rows: int) -> str:

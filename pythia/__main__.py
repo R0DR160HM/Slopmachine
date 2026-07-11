@@ -1,6 +1,6 @@
-"""Entry point for ``python -m lodemaria``."""
+"""Entry point for ``python -m pythia``."""
 
-from lodemaria.cli import main
+from pythia.cli import main
 
 if __name__ == "__main__":
     main()

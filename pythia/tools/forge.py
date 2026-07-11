@@ -14,11 +14,11 @@ import re
 from dataclasses import dataclass
 from typing import Callable
 
-from lodemaria import config
-from lodemaria.config import OLLAMA_OPTIONS
-from lodemaria.llm import strip_think
-from lodemaria.prompts import FORGE_SYSTEM_PROMPT
-from lodemaria.streaming import stream_markdown
+from pythia import config
+from pythia.config import OLLAMA_OPTIONS
+from pythia.llm import strip_think
+from pythia.prompts import FORGE_SYSTEM_PROMPT
+from pythia.streaming import stream_markdown
 
 _CODE_BLOCK_RE = re.compile(r"```(?:python)?\s*\n(.*?)```", re.DOTALL)
 _NAME_CLEAN_RE = re.compile(r"[^a-z0-9_]+")

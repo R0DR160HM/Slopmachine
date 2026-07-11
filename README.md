@@ -1,4 +1,4 @@
-# Lodemar.IA
+# Pyth.IA
 
 Chat no terminal com um modelo Ollama que pesquisa na web (ddgs), faz deep
 research e forja ferramentas novas em tempo de execução.
@@ -29,10 +29,10 @@ research e forja ferramentas novas em tempo de execução.
 
 ```bash
 pip install -r requirements.txt
-python -m lodemaria                      # ou: python lodemaria.py
-python -m lodemaria --model qwen2.5:3b --results 5
-python -m lodemaria --slop               # modelos mínimos (0.5b), veja abaixo
-python -m lodemaria Qual é o seu nome?   # já envia o primeiro prompt
+python -m pythia                      # ou: python pythia.py
+python -m pythia --model qwen2.5:3b --results 5
+python -m pythia --slop               # modelos mínimos (0.5b), veja abaixo
+python -m pythia Qual é o seu nome?   # já envia o primeiro prompt
 ```
 
 ## Gerando o executável
@@ -42,13 +42,13 @@ sistema em que roda. Ou seja, no Windows você obtém um `.exe` que roda só no
 Windows; no Linux, um binário que roda só no Linux. Não dá para gerar um `.exe`
 a partir do Linux (nem vice-versa).
 
-- **Windows** — gera `dist\lodemaria.exe`:
+- **Windows** — gera `dist\pythia.exe`:
 
   ```powershell
   .\build.ps1
   ```
 
-- **Linux / macOS** — gera `dist/lodemaria`:
+- **Linux / macOS** — gera `dist/pythia`:
 
   ```bash
   ./build.sh
@@ -60,13 +60,13 @@ Equivalem a rodar manualmente:
 
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --name lodemaria --clean --noconfirm lodemaria.py
+pyinstaller --onefile --name pythia --clean --noconfirm pythia.py
 ```
 
-Os diretórios `build/` e `dist/` e o arquivo `lodemaria.spec` são gerados pelo
+Os diretórios `build/` e `dist/` e o arquivo `pythia.spec` são gerados pelo
 PyInstaller e estão no `.gitignore`.
 
-## Instalando (chamar de qualquer lugar com `lodemaria`)
+## Instalando (chamar de qualquer lugar com `pythia`)
 
 Depois de gerar o executável, copie-o para um diretório que esteja no `PATH`.
 
@@ -74,10 +74,10 @@ Depois de gerar o executável, copie-o para um diretório que esteja no `PATH`.
 
   ```bash
   mkdir -p ~/.local/bin
-  cp dist/lodemaria ~/.local/bin/
+  cp dist/pythia ~/.local/bin/
   ```
 
-  Se `lodemaria` ainda não for encontrado, `~/.local/bin` não está no `PATH`.
+  Se `pythia` ainda não for encontrado, `~/.local/bin` não está no `PATH`.
   Adicione ao seu `~/.bashrc` (ou `~/.zshrc`) e abra um novo terminal:
 
   ```bash
@@ -88,9 +88,9 @@ Depois de gerar o executável, copie-o para um diretório que esteja no `PATH`.
   adiciona ao `PATH`:
 
   ```powershell
-  $dest = "$env:LOCALAPPDATA\Programs\lodemaria"
+  $dest = "$env:LOCALAPPDATA\Programs\pythia"
   New-Item -ItemType Directory -Force -Path $dest | Out-Null
-  Copy-Item dist\lodemaria.exe $dest -Force
+  Copy-Item dist\pythia.exe $dest -Force
   [Environment]::SetEnvironmentVariable(
       "Path",
       [Environment]::GetEnvironmentVariable("Path", "User") + ";$dest",
@@ -99,16 +99,16 @@ Depois de gerar o executável, copie-o para um diretório que esteja no `PATH`.
 
   Abra um **novo** terminal para o `PATH` atualizado valer.
 
-Feito isso, basta digitar `lodemaria` em qualquer terminal.
+Feito isso, basta digitar `pythia` em qualquer terminal.
 
 ## Usando
 
 ```bash
-lodemaria                     # inicia o chat
-lodemaria --help              # opções
-lodemaria -m qwen2.5:3b -r 8  # modelo e nº de resultados de busca
-lodemaria --slop              # modo slop: modelos mínimos
-lodemaria Qual é o seu nome?  # primeiro prompt direto
+pythia                     # inicia o chat
+pythia --help              # opções
+pythia -m qwen2.5:3b -r 8  # modelo e nº de resultados de busca
+pythia --slop              # modo slop: modelos mínimos
+pythia Qual é o seu nome?  # primeiro prompt direto
 ```
 
 Com `--slop`, o chat e a síntese de documentação usam `qwen2.5:0.5b`, e a

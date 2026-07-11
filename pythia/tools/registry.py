@@ -1,19 +1,18 @@
 """Detection and execution of tool calls emitted by the model."""
 
 import json
-import re
 from typing import Any, Callable
 
 from rich.panel import Panel
 from rich.syntax import Syntax
 
-from lodemaria.config import FORGED_RESULT_MAX_CHARS
-from lodemaria.llm import strip_think
-from lodemaria.terminal import console
-from lodemaria.tools.calculator import calculate
-from lodemaria.tools.display import display_images
-from lodemaria.tools.forge import ForgedTool, ForgeError, forge_tool
-from lodemaria.tools.search import (
+from pythia.config import FORGED_RESULT_MAX_CHARS
+from pythia.llm import strip_think
+from pythia.terminal import console
+from pythia.tools.calculator import calculate
+from pythia.tools.display import display_images
+from pythia.tools.forge import ForgedTool, ForgeError, forge_tool
+from pythia.tools.search import (
     format_image_results,
     format_news_results,
     format_search_results,
@@ -21,7 +20,7 @@ from lodemaria.tools.search import (
     news_search,
     web_search,
 )
-from lodemaria.tools.webpage import fetch_url
+from pythia.tools.webpage import fetch_url
 
 # Tool name → tuple of required JSON keys.
 _REQUIRED_KEYS: dict[str, tuple[str, ...]] = {
@@ -39,21 +38,11 @@ _REQUIRED_KEYS: dict[str, tuple[str, ...]] = {
 # often drop it).
 _forged_tools: dict[str, ForgedTool] = {}
 
-_JSON_OBJECT_RE = re.compile(r"\{.*?\}", re.DOTALL)
+_JSON_DECODER = json.JSONDecoder()
 
 
-def parse_tool_call(text: str) -> dict[str, Any] | None:
-    """Return the parsed JSON dict if the model emitted a tool call,
-    or None if it's a plain text answer.
-    Handles optional <think>...</think> blocks (Qwen3 thinking mode).
-    """
-    # Look for a JSON object anywhere in the (cleaned) response
-    match = _JSON_OBJECT_RE.search(strip_think(text))
-    if not match:
-        return None
-    try:
-        data = json.loads(match.group())
-    except json.JSONDecodeError:
+def _valid_call(data: Any) -> dict[str, Any] | None:
+    if not isinstance(data, dict):
         return None
     tool = data.get("tool")
     if tool in _forged_tools:
@@ -61,6 +50,44 @@ def parse_tool_call(text: str) -> dict[str, Any] | None:
     if tool in _REQUIRED_KEYS and all(k in data for k in _REQUIRED_KEYS[tool]):
         return data
     return None
+
+
+def _scan_json_values(text: str) -> list[Any]:
+    """Scan `text` left-to-right, decoding every top-level JSON value (object
+    or array) found, skipping over any surrounding prose between them."""
+    values: list[Any] = []
+    idx, length = 0, len(text)
+    while idx < length:
+        while idx < length and text[idx] not in "{[":
+            idx += 1
+        if idx >= length:
+            break
+        try:
+            value, end = _JSON_DECODER.raw_decode(text, idx)
+        except json.JSONDecodeError:
+            idx += 1
+            continue
+        values.append(value)
+        idx = end
+    return values
+
+
+def parse_tool_calls(text: str) -> list[dict[str, Any]] | None:
+    """Return the tool call(s) the model emitted, in the order they appear,
+    or None if it's a plain text answer.
+
+    A turn may contain a single JSON object, several consecutive objects, or
+    one JSON array of objects — all three are accepted so the model can batch
+    multiple tool calls into one turn. Handles optional <think>...</think>
+    blocks (Qwen3 thinking mode).
+    """
+    calls: list[dict[str, Any]] = []
+    for value in _scan_json_values(strip_think(text)):
+        for candidate in value if isinstance(value, list) else [value]:
+            call = _valid_call(candidate)
+            if call is not None:
+                calls.append(call)
+    return calls or None
 
 
 def _run_web_search(call: dict, max_results: int) -> str:

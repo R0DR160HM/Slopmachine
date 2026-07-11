@@ -2,7 +2,7 @@
 
 from ddgs import DDGS
 
-from lodemaria.config import DEFAULT_MAX_RESULTS
+from pythia.config import DEFAULT_MAX_RESULTS
 
 
 def _search(kind: str, query: str, max_results: int) -> list[dict]:

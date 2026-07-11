@@ -4,7 +4,7 @@ import io
 import os
 import urllib.request
 
-from lodemaria.terminal import console, prompt_area
+from pythia.terminal import console, prompt_area
 
 DOWNLOAD_TIMEOUT = 15
 IMAGE_ROWS = 30  # character rows (each covers 2 pixel rows)

@@ -14,8 +14,8 @@ import sys
 import time
 from importlib.util import find_spec
 
-from lodemaria import config
-from lodemaria.config import (
+from pythia import config
+from pythia.config import (
     DEFAULT_MAX_RESULTS,
     DEFAULT_MODEL,
     MEGABRAIN_MODEL,
@@ -80,7 +80,7 @@ def _parse_args() -> argparse.Namespace:
         "prompt",
         nargs="*",
         help="Optional first prompt to send immediately "
-             "(e.g. python -m lodemaria Qual é o seu nome?)",
+             "(e.g. python -m pythia Qual é o seu nome?)",
     )
     return parser.parse_args()
 
@@ -275,8 +275,8 @@ def main() -> None:
     _check_dependencies()
 
     # Imported only after the dependency check — these pull in rich/ollama.
-    from lodemaria.chat import ChatSession
-    from lodemaria.terminal import raw_input_mode
+    from pythia.chat import ChatSession
+    from pythia.terminal import raw_input_mode
 
     state = {"proc": _start_ollama_server()}
 

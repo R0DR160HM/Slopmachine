@@ -1,10 +1,10 @@
 """Tools the model (and the deep-research pipeline) can invoke."""
 
-from lodemaria.tools.calculator import calculate
-from lodemaria.tools.display import display_images
-from lodemaria.tools.documentation import write_project_documentation
-from lodemaria.tools.registry import execute_tool_call, parse_tool_call
-from lodemaria.tools.search import (
+from pythia.tools.calculator import calculate
+from pythia.tools.display import display_images
+from pythia.tools.documentation import write_project_documentation
+from pythia.tools.registry import execute_tool_call, parse_tool_calls
+from pythia.tools.search import (
     format_image_results,
     format_news_results,
     format_search_results,
@@ -12,7 +12,7 @@ from lodemaria.tools.search import (
     news_search,
     web_search,
 )
-from lodemaria.tools.webpage import fetch_url
+from pythia.tools.webpage import fetch_url
 
 __all__ = [
     "calculate",
@@ -24,7 +24,7 @@ __all__ = [
     "format_search_results",
     "image_search",
     "news_search",
-    "parse_tool_call",
+    "parse_tool_calls",
     "web_search",
     "write_project_documentation",
 ]

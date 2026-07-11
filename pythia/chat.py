@@ -12,18 +12,18 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
-from lodemaria.config import (
+from pythia.config import (
     MAX_TOOL_CALLS,
     MEGABRAIN_MODEL,
     OLLAMA_OPTIONS,
     THINKING_LABELS,
 )
-from lodemaria.llm import Message, ask, strip_think, trim_messages
-from lodemaria.prompts import MEGABRAIN_REWRITE_SYS, SYSTEM_PROMPT_TEMPLATE
-from lodemaria.research import DEEP_RESEARCH_RE, extract_topic, run_deep_research
-from lodemaria.streaming import stream_markdown
-from lodemaria.terminal import INTERRUPT, InputReader, console, prompt_area
-from lodemaria.tools import (
+from pythia.llm import Message, ask, strip_think, trim_messages
+from pythia.prompts import MEGABRAIN_REWRITE_SYS, SYSTEM_PROMPT_TEMPLATE
+from pythia.research import DEEP_RESEARCH_RE, extract_topic, run_deep_research
+from pythia.streaming import stream_markdown
+from pythia.terminal import INTERRUPT, InputReader, console, prompt_area
+from pythia.tools import (
     display_images,
     execute_tool_call,
     format_image_results,
@@ -31,11 +31,11 @@ from lodemaria.tools import (
     format_search_results,
     image_search,
     news_search,
-    parse_tool_call,
+    parse_tool_calls,
     web_search,
     write_project_documentation,
 )
-from lodemaria.tools.shell import SHELL_OUTPUT_MAX_CHARS, ShellManager, echo_payload
+from pythia.tools.shell import SHELL_OUTPUT_MAX_CHARS, ShellManager, echo_payload
 
 MEGABRAIN_RE = re.compile(r"mega\s*brain", re.IGNORECASE)
 BRACKET_TERM_RE = re.compile(r"\[([^\]]+)\]")
@@ -180,7 +180,7 @@ class ChatSession:
 
     def _print_header(self) -> None:
         console.clear()
-        header = Text("🦙  Lodemar.IA Chat", style="bold cyan")
+        header = Text("🪉  Delfos", style="bold cyan")
         console.print(Panel(header, expand=False, border_style="cyan"))
         console.print(
             f"[dim]Modelo:[/dim] [green]{self.model}[/green]  "
@@ -440,10 +440,10 @@ class ChatSession:
                 return
             self.messages.append({"role": "assistant", "content": assistant_text})
 
-            tool_call = parse_tool_call(assistant_text)
-            if tool_call is None:
+            tool_calls = parse_tool_calls(assistant_text)
+            if tool_calls is None:
                 # Plain answer — done (streamed live above; print the permanent render)
-                console.print("[bold green]Lodemar.ia:[/bold green]")
+                console.print("[bold green]Pyth.IA:[/bold green]")
                 console.print(Markdown(strip_think(assistant_text)))
                 console.print()
                 # Proactive: if the answer proposes exactly one shell command,
@@ -455,14 +455,22 @@ class ChatSession:
                 self.messages.append({"role": "user", "content": feedback})
                 continue
 
-            # The shell tool needs user approval and the session manager, both
-            # of which live here — so it is handled in the chat layer instead of
-            # the stateless tool registry.
-            if tool_call.get("tool") == "shell_of_last_resort":
-                feedback = self._run_agent_shell(tool_call)
-            else:
-                feedback = execute_tool_call(tool_call, self.max_results)
-            self.messages.append({"role": "user", "content": feedback})
+            # Run every tool call the model batched into this turn, one at a
+            # time and in the order the model emitted them, then report all
+            # of their results back together in a single message.
+            feedbacks = []
+            for i, tool_call in enumerate(tool_calls, 1):
+                # The shell tool needs user approval and the session manager, both
+                # of which live here — so it is handled in the chat layer instead of
+                # the stateless tool registry.
+                if tool_call.get("tool") == "shell_of_last_resort":
+                    feedback = self._run_agent_shell(tool_call)
+                else:
+                    feedback = execute_tool_call(tool_call, self.max_results)
+                if len(tool_calls) > 1:
+                    feedback = f"=== Result {i}/{len(tool_calls)}: {tool_call.get('tool')} ===\n{feedback}"
+                feedbacks.append(feedback)
+            self.messages.append({"role": "user", "content": "\n\n".join(feedbacks)})
 
         console.print("[bold red]⚠️  Reached max tool-call iterations without a final answer.[/bold red]\n")
 
@@ -473,7 +481,7 @@ class ChatSession:
             with self._generating():  # let Ctrl+C abort the in-flight generation
                 return stream_markdown(
                     next(self.labels),
-                    header="[bold green]Lodemar.ia:[/bold green]",
+                    header="[bold green]Pyth.IA:[/bold green]",
                     suppress_json=True,
                     model=self.model,
                     messages=trim_messages(self.messages),
@@ -533,7 +541,7 @@ class ChatSession:
 
         console.print(Panel(
             f"[bold white]$ {command}[/]",
-            title="[bold yellow]Lodemar.ia quer executar um comando[/]",
+            title="[bold yellow]Pyth.IA quer executar um comando[/]",
             border_style="yellow",
             expand=False,
         ))

@@ -9,8 +9,8 @@ from typing import Iterator
 
 import ollama
 
-from lodemaria.config import HISTORY_CHAR_BUDGET, OLLAMA_OPTIONS
-from lodemaria.terminal import prompt_area
+from pythia.config import HISTORY_CHAR_BUDGET, OLLAMA_OPTIONS
+from pythia.terminal import prompt_area
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 _THINK_TAG = "<think>"
@@ -51,6 +51,7 @@ def stream_chat(label: str, **chat_kwargs) -> Iterator[str]:
     Errors from the worker are re-raised in the calling thread.
     """
     tokens: queue.Queue = queue.Queue()
+    chat_kwargs.setdefault("think", False)
 
     def _worker() -> None:
         try:

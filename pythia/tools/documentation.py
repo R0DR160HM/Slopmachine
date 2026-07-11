@@ -3,16 +3,16 @@ project in the current working directory.
 
 Every non-gitignored, non-configuration file — dotfiles and files inside
 dotfolders (.github/, .vscode/, ...) are always ignored — is hashed into
-.lodemaria/index.json (keyed by its path relative to the project root, so the
+.pythia/index.json (keyed by its path relative to the project root, so the
 project can move or be cloned elsewhere without invalidating the docs). Files whose hash is new or changed
 are fed to the coder model (config.DOC_MODEL), which writes markdown docs
-mirroring the source tree under .lodemaria/docs/ — each doc streams live in
+mirroring the source tree under .pythia/docs/ — each doc streams live in
 the terminal as it is written. Companion files sharing the
 same path and stem (app.component.ts + app.component.html) are documented
 together as one unit; stylesheets and markdown files are hashed but never
 documented. Whenever
 any doc changed, all per-file docs are fed to the general model
-(config.DOC_SYNTH_MODEL) to produce .lodemaria/PROJECT.md, a comprehensive
+(config.DOC_SYNTH_MODEL) to produce .pythia/PROJECT.md, a comprehensive
 overview of the whole project.
 """
 
@@ -24,18 +24,18 @@ import re
 import subprocess
 from pathlib import Path, PurePosixPath
 
-from lodemaria import config
-from lodemaria.config import (
+from pythia import config
+from pythia.config import (
     DOC_GROUP_MAX_CHARS,
     DOC_PROJECT_MAX_CHARS,
     OLLAMA_OPTIONS,
 )
-from lodemaria.llm import strip_think
-from lodemaria.prompts import DOC_FILE_SYS, DOC_PROJECT_SYS
-from lodemaria.streaming import stream_markdown
-from lodemaria.terminal import console
+from pythia.llm import strip_think
+from pythia.prompts import DOC_FILE_SYS, DOC_PROJECT_SYS
+from pythia.streaming import stream_markdown
+from pythia.terminal import console
 
-LODEMARIA_DIR = ".lodemaria"
+PYTHIA_DIR = ".pythia"
 DOCS_DIRNAME = "docs"
 INDEX_FILENAME = "index.json"
 PROJECT_DOC_FILENAME = "PROJECT.md"
@@ -148,7 +148,7 @@ def _scan(root: Path) -> dict[str, str]:
         if not path.is_file():  # git may list tracked files deleted from disk
             continue
         rel = path.relative_to(root).as_posix()
-        # Dotfiles and anything under a dotfolder (.git, .lodemaria, .github,
+        # Dotfiles and anything under a dotfolder (.git, .pythia, .github,
         # ...) are never indexed.
         if any(part.startswith(".") for part in rel.split("/")):
             continue
@@ -163,7 +163,7 @@ def _scan(root: Path) -> dict[str, str]:
 # ── Index persistence (paths relative to the project root, posix-style) ───────
 
 def _index_path(root: Path) -> Path:
-    return root / LODEMARIA_DIR / INDEX_FILENAME
+    return root / PYTHIA_DIR / INDEX_FILENAME
 
 
 def _load_index(root: Path) -> dict[str, str]:
@@ -217,7 +217,7 @@ def _groups(index: dict[str, str]) -> dict[str, dict[str, str]]:
 
 
 def _doc_path(root: Path, key: str) -> Path:
-    return root / LODEMARIA_DIR / DOCS_DIRNAME / (key + ".md")
+    return root / PYTHIA_DIR / DOCS_DIRNAME / (key + ".md")
 
 
 # ── Model calls ────────────────────────────────────────────────────────────────
@@ -279,7 +279,7 @@ def _write_project_doc(root: Path, groups: dict[str, dict[str, str]]) -> bool:
     )
     if not overview:
         return False
-    (root / LODEMARIA_DIR / PROJECT_DOC_FILENAME).write_text(overview + "\n", "utf-8")
+    (root / PYTHIA_DIR / PROJECT_DOC_FILENAME).write_text(overview + "\n", "utf-8")
     return True
 
 
@@ -303,7 +303,7 @@ def write_project_documentation() -> str:
     stale = [key for key in old_groups if key not in new_groups]
     for key in stale:
         _doc_path(root, key).unlink(missing_ok=True)
-    _prune_empty_dirs(root / LODEMARIA_DIR / DOCS_DIRNAME)
+    _prune_empty_dirs(root / PYTHIA_DIR / DOCS_DIRNAME)
 
     # A group is (re)documented when any member is new, changed, or removed,
     # or when its doc file is missing.
@@ -347,14 +347,14 @@ def write_project_documentation() -> str:
         _save_index(root, persisted)
     documented = [k for k in todo if k not in failed]
 
-    project_doc = root / LODEMARIA_DIR / PROJECT_DOC_FILENAME
+    project_doc = root / PYTHIA_DIR / PROJECT_DOC_FILENAME
     regenerated = False
     if documented or stale or not project_doc.is_file():
         console.print("[bold yellow]📖  Gerando a documentação geral do projeto...[/bold yellow]")
         regenerated = _write_project_doc(root, new_groups)
 
     lines = [
-        f"Project documentation updated under {root / LODEMARIA_DIR}:",
+        f"Project documentation updated under {root / PYTHIA_DIR}:",
         f"- {len(persisted)} file(s) hashed into {INDEX_FILENAME}",
         f"- {len(documented)} doc group(s) (re)written in {DOCS_DIRNAME}/",
         f"- {len(stale)} stale doc(s) removed",

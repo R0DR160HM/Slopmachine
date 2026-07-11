@@ -7,7 +7,7 @@ import urllib.request
 FETCH_TIMEOUT = 15
 MAX_DOWNLOAD_BYTES = 2_000_000
 DEFAULT_MAX_CHARS = 4000
-USER_AGENT = "Mozilla/5.0 (Lodemar.IA bot)"
+USER_AGENT = "Mozilla/5.0 (Pyth.IA bot)"
 
 
 def extract_text(html_text: str) -> str:

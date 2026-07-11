@@ -10,12 +10,12 @@ import re
 from rich.markdown import Markdown
 from rich.panel import Panel
 
-from lodemaria import prompts
-from lodemaria.config import DEEP_FETCH_TOP, DEEP_SUBTOPICS, OLLAMA_OPTIONS
-from lodemaria.llm import ask, parse_list, strip_think
-from lodemaria.streaming import stream_markdown
-from lodemaria.terminal import console
-from lodemaria.tools import (
+from pythia import prompts
+from pythia.config import DEEP_FETCH_TOP, DEEP_SUBTOPICS, OLLAMA_OPTIONS
+from pythia.llm import ask, parse_list, strip_think
+from pythia.streaming import stream_markdown
+from pythia.terminal import console
+from pythia.tools import (
     display_images,
     fetch_url,
     format_news_results,
@@ -166,7 +166,7 @@ def run_deep_research(request: str, model: str, max_results: int) -> str:
         f"TÓPICO: {keywords}\n\n=== RESUMO GERAL ===\n{abstract}\n\n"
         f"=== APROFUNDAMENTO ===\n" + "\n\n".join(deep_sections)
     )
-    console.print("[bold green]🔬 Pesquisa Profunda — Lodemar.ia:[/bold green]")
+    console.print("[bold green]🔬 Pesquisa Profunda — Pyth.IA:[/bold green]")
     report = _ask_streamed(
         model, prompts.SYNTH_SYS,
         f"Material completo de pesquisa:\n\n{material}",

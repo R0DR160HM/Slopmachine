@@ -1,11 +1,11 @@
-"""Compatibility launcher — the application lives in the ``lodemaria`` package.
+"""Compatibility launcher — the application lives in the ``pythia`` package.
 
 Usage:
-    python lodemaria.py                # or: python -m lodemaria
-    python lodemaria.py --model qwen2.5:3b --results 5
+    python pythia.py                # or: python -m pythia
+    python pythia.py --model qwen2.5:3b --results 5
 """
 
-from lodemaria.cli import main
+from pythia.cli import main
 
 if __name__ == "__main__":
     main()
