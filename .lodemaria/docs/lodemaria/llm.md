@@ -1,3 +1,0 @@
-# Lodemaria - Language Model Helper Library
-
-This module contains functions for interacting with the Ollama language model and managing message history. The `stream_chat` function allows you to stream partial responses from the model as they are generated, while also providing a live elapsed timer on the status line. The `ask` function is used to make one-shot model calls and returns cleaned plain text without system prompts or tool instructions. The `trim_messages` function helps manage the history by preserving the system prompt and removing the oldest conversation turns until the context window fits within a specified budget. The `parse_list` function extracts a list of short strings from a model reply, handling JSON arrays or delimited lines as appropriate.
