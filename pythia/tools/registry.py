@@ -12,6 +12,7 @@ from pythia.terminal import console
 from pythia.tools.calculator import calculate
 from pythia.tools.display import display_images
 from pythia.tools.forge import ForgedTool, ForgeError, forge_tool
+from pythia.tools.project_search import project_search
 from pythia.tools.search import (
     format_image_results,
     format_news_results,
@@ -28,6 +29,7 @@ _REQUIRED_KEYS: dict[str, tuple[str, ...]] = {
     "image_search": ("query",),
     "news_search": ("query",),
     "fetch_url": ("url",),
+    "project_search": ("query",),
     "calculate": ("expression",),
     "tool_forge": ("expression",),
     "shell_of_last_resort": ("command",),
@@ -135,6 +137,17 @@ def _run_fetch_url(call: dict, max_results: int) -> str:
     )
 
 
+def _run_project_search(call: dict, max_results: int) -> str:
+    query = call["query"]
+    console.print(f"\n[bold yellow]📖  Buscando na documentação:[/bold yellow] [cyan]{query}[/cyan]")
+    result = project_search(query)
+    console.print("[dim]Busca concluída[/dim]\n")
+    return (
+        f"Project documentation search results for '{query}':\n\n{result}\n\n"
+        "Now answer or make another tool call."
+    )
+
+
 def _run_calculate(call: dict, max_results: int) -> str:
     expression = call["expression"]
     console.print(f"\n[bold yellow]🧮  Calculando:[/bold yellow] [cyan]{expression}[/cyan]")
@@ -207,6 +220,7 @@ _HANDLERS: dict[str, Callable[[dict, int], str]] = {
     "image_search": _run_image_search,
     "news_search": _run_news_search,
     "fetch_url": _run_fetch_url,
+    "project_search": _run_project_search,
     "calculate": _run_calculate,
     "tool_forge": _run_tool_forge,
     "shell_of_last_resort": _run_shell_unavailable,

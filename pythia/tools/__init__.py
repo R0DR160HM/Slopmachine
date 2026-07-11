@@ -3,6 +3,7 @@
 from pythia.tools.calculator import calculate
 from pythia.tools.display import display_images
 from pythia.tools.documentation import write_project_documentation
+from pythia.tools.project_search import project_search
 from pythia.tools.registry import execute_tool_call, parse_tool_calls
 from pythia.tools.search import (
     format_image_results,
@@ -25,6 +26,7 @@ __all__ = [
     "image_search",
     "news_search",
     "parse_tool_calls",
+    "project_search",
     "web_search",
     "write_project_documentation",
 ]

@@ -10,7 +10,23 @@ mirroring the source tree under .pythia/docs/ — each doc streams live in
 the terminal as it is written. Companion files sharing the
 same path and stem (app.component.ts + app.component.html) are documented
 together as one unit; stylesheets and markdown files are hashed but never
-documented. Whenever
+documented. After each doc is written the model is asked which UML diagrams
+apply (sequence, class, deployment, PlantUML regex — multiple of each type
+allowed) and then generates each
+one as PlantUML, one model call per diagram, saved in a "<name>-meta"
+folder beside the group's markdown doc under .pythia/docs/. Each diagram
+is rendered with the
+vendored PlantUML jar (vendor/plantuml, bundled into frozen builds): an
+ASCII version is shown in the chat as it is created (never saved) and an
+.svg image is saved beside its .puml. Rendering needs java on PATH and is
+skipped with a warning when it is missing.
+
+The group's source files, markdown doc and PlantUML diagrams are also
+embedded with config.EMBED_MODEL (sliced to fit its 2k-token context) into
+"<name>-meta/embeddings.json"; whenever anything changed, all per-group
+embeddings are composed into .pythia/embeddings.json — the semantic index
+consumed by the project_search tool.
+Whenever
 any doc changed, all per-file docs are fed to the general model
 (config.DOC_SYNTH_MODEL) to produce .pythia/PROJECT.md, a comprehensive
 overview of the whole project.
@@ -21,17 +37,30 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
+import sys
 from pathlib import Path, PurePosixPath
+
+from rich.text import Text
 
 from pythia import config
 from pythia.config import (
+    DOC_DIAGRAM_DOC_MAX_CHARS,
+    DOC_DIAGRAMS_MAX,
     DOC_GROUP_MAX_CHARS,
     DOC_PROJECT_MAX_CHARS,
+    EMBED_SLICE_CHARS,
+    EMBED_SLICE_OVERLAP,
     OLLAMA_OPTIONS,
 )
-from pythia.llm import strip_think
-from pythia.prompts import DOC_FILE_SYS, DOC_PROJECT_SYS
+from pythia.llm import ask, embed_documents, strip_think
+from pythia.prompts import (
+    DOC_DIAGRAM_GEN_SYS,
+    DOC_DIAGRAM_SELECT_SYS,
+    DOC_FILE_SYS,
+    DOC_PROJECT_SYS,
+)
 from pythia.streaming import stream_markdown
 from pythia.terminal import console
 
@@ -39,6 +68,20 @@ PYTHIA_DIR = ".pythia"
 DOCS_DIRNAME = "docs"
 INDEX_FILENAME = "index.json"
 PROJECT_DOC_FILENAME = "PROJECT.md"
+
+# Generated diagrams and embeddings for group "pythia/llm" live in
+# ".pythia/docs/pythia/llm-meta/", right next to the group's markdown doc.
+META_SUFFIX = "-meta"
+DIAGRAM_TYPES = ("sequence", "class", "deployment", "regex")
+
+# Per-group embeddings file inside "<name>-meta/"; the composed, project-wide
+# index shares the name and lives directly under .pythia/.
+EMBED_FILENAME = "embeddings.json"
+
+# Where the PlantUML jar lives, relative to the project source root — frozen
+# builds carry this folder inside the executable (see build.sh / build.ps1).
+PLANTUML_VENDOR_DIR = "vendor/plantuml"
+PLANTUML_TIMEOUT = 120  # seconds per rendered diagram
 
 # Configuration/metadata files: neither hashed nor documented. Filenames that
 # start with a dot (.gitignore, .env.local, ...) are treated as config too.
@@ -58,6 +101,7 @@ _NO_DOC_EXTS = {
 # Dot-directories need no listing here — the walker prunes them all.
 _FALLBACK_SKIP_DIRS = {
     "node_modules", "__pycache__", "venv", "dist", "build", "target",
+    "vendor",
 }
 
 _FENCE_RE = re.compile(r"^```[a-zA-Z-]*\s*\n(.*)\n```\s*$", re.DOTALL)
@@ -149,7 +193,8 @@ def _scan(root: Path) -> dict[str, str]:
             continue
         rel = path.relative_to(root).as_posix()
         # Dotfiles and anything under a dotfolder (.git, .pythia, .github,
-        # ...) are never indexed.
+        # ...) are never indexed — that also covers everything this tool
+        # generates, since it all lives under .pythia/.
         if any(part.startswith(".") for part in rel.split("/")):
             continue
         if _is_config(path.name):
@@ -243,7 +288,7 @@ def _ask_streaming(model: str, system: str, user: str, label: str, header: str) 
     return _strip_fence(strip_think(raw))
 
 
-def _document_group(root: Path, key: str, members: dict[str, str]) -> str:
+def _group_source(root: Path, members: dict[str, str]) -> str:
     sections = []
     for rel in sorted(members):
         try:
@@ -254,6 +299,10 @@ def _document_group(root: Path, key: str, members: dict[str, str]) -> str:
     source = "\n\n".join(sections)
     if len(source) > DOC_GROUP_MAX_CHARS:
         source = source[:DOC_GROUP_MAX_CHARS] + "\n…[content truncated]"
+    return source
+
+
+def _document_group(key: str, source: str) -> str:
     return _ask_streaming(
         config.DOC_MODEL, DOC_FILE_SYS, source,
         f"Documentando {key}", f"[bold cyan]📄  {key}[/bold cyan]",
@@ -283,6 +332,327 @@ def _write_project_doc(root: Path, groups: dict[str, dict[str, str]]) -> bool:
     return True
 
 
+# ── PlantUML diagrams (saved beside the documented source files) ──────────────
+
+_PLANTUML_BLOCK_RE = re.compile(r"@start\w+.*?@end\w+", re.DOTALL)
+
+
+def _meta_dir(root: Path, key: str) -> Path:
+    return root / PYTHIA_DIR / DOCS_DIRNAME / (key + META_SUFFIX)
+
+
+def _clear_meta(dir_path: Path) -> None:
+    """Remove previously generated meta files — only "<type>-*.puml/.svg" and
+    the embeddings file, so anything the user placed in the folder is
+    preserved — then the folder itself when empty."""
+    if not dir_path.is_dir():
+        return
+    for dtype in DIAGRAM_TYPES:
+        for ext in (".puml", ".svg"):
+            for stale in dir_path.glob(f"{dtype}-*{ext}"):
+                stale.unlink(missing_ok=True)
+    (dir_path / EMBED_FILENAME).unlink(missing_ok=True)
+    try:
+        dir_path.rmdir()  # only succeeds when empty
+    except OSError:
+        pass
+
+
+def _parse_diagram_specs(text: str) -> list[dict[str, str]]:
+    """Diagram specs from the selection reply: a JSON array of objects with
+    "type" (+ optional "title"/"instructions"); bare type strings tolerated."""
+    match = re.search(r"\[.*\]", text, re.DOTALL)
+    if not match:
+        return []
+    try:
+        items = json.loads(match.group())
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(items, list):
+        return []
+    specs: list[dict[str, str]] = []
+    for item in items:
+        if isinstance(item, str):
+            item = {"type": item}
+        if not isinstance(item, dict):
+            continue
+        raw_type = str(item.get("type", "")).strip().lower()
+        dtype = next((t for t in DIAGRAM_TYPES if t in raw_type), None)
+        if dtype is None:
+            continue
+        specs.append({
+            "type": dtype,
+            "title": str(item.get("title", "")).strip(),
+            "instructions": str(
+                item.get("instructions", item.get("description", ""))
+            ).strip(),
+        })
+    return specs[:DOC_DIAGRAMS_MAX]
+
+
+def _select_diagrams(source: str, doc: str) -> list[dict[str, str]]:
+    """Ask the model which UML diagrams (if any) apply to this group."""
+    doc_part = doc[:DOC_DIAGRAM_DOC_MAX_CHARS]
+    reply = ask(
+        config.DOC_MODEL, DOC_DIAGRAM_SELECT_SYS,
+        f"{source}\n\n=== Documentation just written ===\n{doc_part}",
+        "Avaliando diagramas",
+    )
+    return _parse_diagram_specs(reply)
+
+
+def _normalize_plantuml(text: str, dtype: str) -> str:
+    """The @start…@end block of the reply; bare content gets wrapped. Text the
+    model echoes after the @start tag (e.g. the diagram spec) is dropped."""
+    text = text.strip()
+    if not text:
+        return ""
+    match = _PLANTUML_BLOCK_RE.search(text)
+    if match:
+        block = match.group().strip()
+        return re.sub(r"^(@start\w+)[^\n]*", r"\1", block)
+    start, end = (
+        ("@startregex", "@endregex") if dtype == "regex"
+        else ("@startuml", "@enduml")
+    )
+    return f"{start}\n{text}\n{end}"
+
+
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40]
+
+
+# ── PlantUML rendering (vendored jar, java required) ───────────────────────────
+
+_plantuml_warned = False
+
+
+def _plantuml_jar() -> Path | None:
+    """The vendored PlantUML jar: inside the frozen executable's extracted
+    data (PyInstaller) or under vendor/ at the source checkout root."""
+    if getattr(sys, "frozen", False):
+        base = Path(getattr(sys, "_MEIPASS", "."))
+    else:
+        base = Path(__file__).resolve().parents[2]
+    return next(iter(sorted((base / PLANTUML_VENDOR_DIR).glob("*.jar"))), None)
+
+
+def _plantuml_cmd(jar: Path) -> list[str] | None:
+    """Base command line to run the jar; None when java is not on PATH."""
+    java = shutil.which("java")
+    if java is None:
+        return None
+    cmd = [java, "-Djava.awt.headless=true", "-jar", str(jar),
+           "-charset", "UTF-8"]
+    if shutil.which("dot") is None:
+        # Graphviz is absent: fall back to PlantUML's pure-java layout engine
+        # so class/deployment diagrams still render.
+        cmd.append("-Playout=smetana")
+    return cmd
+
+
+def _render_txt(jar: Path, puml: str) -> str:
+    """ASCII-art rendering of one diagram, shown in the chat (never saved).
+    Empty when java is missing or PlantUML cannot render this diagram."""
+    cmd = _plantuml_cmd(jar)
+    if cmd is None:
+        return ""
+    try:
+        proc = subprocess.run(
+            cmd + ["-ttxt", "-pipe"], input=puml.encode("utf-8"),
+            capture_output=True, timeout=PLANTUML_TIMEOUT,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if proc.returncode != 0:
+        return ""
+    return proc.stdout.decode("utf-8", "replace").rstrip()
+
+
+def _render_svgs(jar: Path | None, pumls: list[Path]) -> int:
+    """Render .puml files to .svg images saved in the same folder. Returns how
+    many were rendered; warns once per run when java or the jar is missing."""
+    global _plantuml_warned
+    if not pumls:
+        return 0
+    cmd = _plantuml_cmd(jar) if jar is not None else None
+    if cmd is None:
+        if not _plantuml_warned:
+            _plantuml_warned = True
+            missing = ("java" if jar is not None
+                       else f"o PlantUML ({PLANTUML_VENDOR_DIR}/*.jar)")
+            console.print(
+                f"[yellow]⚠  {missing} não foi encontrado — os .puml foram "
+                f"salvos, mas as imagens .svg não serão geradas.[/yellow]"
+            )
+        return 0
+    try:
+        proc = subprocess.run(
+            cmd + ["-tsvg"] + [str(p) for p in pumls],
+            capture_output=True, timeout=PLANTUML_TIMEOUT * len(pumls),
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        console.print(f"[red]Falha ao executar o PlantUML: {e}[/red]")
+        return 0
+    rendered = sum(1 for p in pumls if p.with_suffix(".svg").is_file())
+    if rendered < len(pumls):
+        err = proc.stderr.decode("utf-8", "replace").strip().splitlines()
+        detail = f": {err[-1]}" if err else ""
+        console.print(
+            f"[red]PlantUML renderizou {rendered}/{len(pumls)} "
+            f"diagrama(s){detail}[/red]"
+        )
+    return rendered
+
+
+# ── Embeddings (the semantic index behind the project_search tool) ─────────────
+
+_embed_warned = False
+
+
+def _slices(text: str) -> list[str]:
+    """Overlapping chunks sized for the embedding model's 2k-token context."""
+    text = text.strip()
+    if not text:
+        return []
+    step = EMBED_SLICE_CHARS - EMBED_SLICE_OVERLAP
+    chunks = []
+    for start in range(0, len(text), step):
+        chunks.append(text[start:start + EMBED_SLICE_CHARS])
+        if start + EMBED_SLICE_CHARS >= len(text):
+            break
+    return chunks
+
+
+def _embed_group(
+    root: Path, key: str, members: dict[str, str], doc: str, pumls: list[Path]
+) -> int:
+    """Embed the group's source files, markdown doc and PlantUML diagrams into
+    "<key>-meta/embeddings.json". Returns how many slices were embedded; on
+    failure (e.g. the embedding model is missing) warns once and returns 0."""
+    global _embed_warned
+    entries: list[dict] = []
+
+    def add(origin: str, kind: str, text: str) -> None:
+        for i, chunk in enumerate(_slices(text)):
+            entries.append(
+                {"origin": origin, "kind": kind, "slice": i, "text": chunk}
+            )
+
+    for rel in sorted(members):
+        try:
+            add(rel, "source", (root / rel).read_text("utf-8", errors="replace"))
+        except OSError:
+            continue
+    add(key + ".md", "doc", doc)
+    for puml in pumls:
+        try:
+            add(puml.name, "diagram", puml.read_text("utf-8"))
+        except OSError:
+            continue
+    if not entries:
+        return 0
+
+    console.print(f"[dim]🧠  Gerando {len(entries)} embedding(s)...[/dim]")
+    try:
+        vectors = embed_documents([e["text"] for e in entries])
+    except Exception as e:
+        if not _embed_warned:
+            _embed_warned = True
+            console.print(
+                f"[yellow]⚠  Não consegui gerar embeddings ({e}) — confira se "
+                f"o modelo '{config.EMBED_MODEL}' está disponível no Ollama. "
+                f"A busca na documentação não será atualizada.[/yellow]"
+            )
+        return 0
+    for entry, vector in zip(entries, vectors):
+        entry["vector"] = vector
+    out_dir = _meta_dir(root, key)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / EMBED_FILENAME).write_text(
+        json.dumps({"records": entries}, ensure_ascii=False), "utf-8"
+    )
+    return len(entries)
+
+
+def _compose_embeddings(root: Path, groups: dict[str, dict[str, str]]) -> int:
+    """Merge every group's embeddings into .pythia/embeddings.json — the single
+    index project_search loads. Returns the total number of indexed slices."""
+    records: list[dict] = []
+    for key in sorted(groups):
+        try:
+            data = json.loads(
+                (_meta_dir(root, key) / EMBED_FILENAME).read_text("utf-8")
+            )
+        except (OSError, json.JSONDecodeError):
+            continue
+        for record in data.get("records", []):
+            record["group"] = key
+            records.append(record)
+    index_path = root / PYTHIA_DIR / EMBED_FILENAME
+    if not records:
+        index_path.unlink(missing_ok=True)
+        return 0
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.write_text(
+        json.dumps({"model": config.EMBED_MODEL, "records": records},
+                   ensure_ascii=False),
+        "utf-8",
+    )
+    return len(records)
+
+
+def _generate_diagrams(
+    root: Path, key: str, source: str, doc: str
+) -> tuple[list[Path], int]:
+    """Select and generate the group's PlantUML diagrams (one call to the
+    doc model per diagram) into "<key>-meta/" beside the group's doc,
+    showing each one in the chat as ASCII art and rendering all of them to
+    .svg beside the .puml files. Returns (saved .puml paths, svgs rendered);
+    the folder is always rebuilt, so stale diagrams never linger."""
+    out_dir = _meta_dir(root, key)
+    _clear_meta(out_dir)
+    specs = _select_diagrams(source, doc)
+    if not specs:
+        return [], 0
+    jar = _plantuml_jar()
+    saved: list[Path] = []
+    counters: dict[str, int] = {}
+    for i, spec in enumerate(specs, 1):
+        counters[spec["type"]] = counters.get(spec["type"], 0) + 1
+        name = f"{spec['type']}-{counters[spec['type']]}"
+        if _slug(spec["title"]):
+            name += f"-{_slug(spec['title'])}"
+        console.print(
+            f"[bold yellow]🧩  ({i}/{len(specs)})[/bold yellow] "
+            f"[cyan]{key}[/cyan] [dim]{spec['type']}: "
+            f"{spec['title'] or '(sem título)'}[/dim]"
+        )
+        raw = _ask_streaming(
+            config.DOC_MODEL, DOC_DIAGRAM_GEN_SYS,
+            (f"=== Diagram to produce ===\n"
+             f"type: {spec['type']}\n"
+             f"title: {spec['title'] or '(pick a fitting one)'}\n"
+             f"must show: {spec['instructions'] or '(use your judgment)'}\n\n"
+             f"{source}"),
+            f"Diagrama {name}", f"[bold cyan]🧩  {key} · {name}[/bold cyan]",
+        )
+        puml = _normalize_plantuml(raw, spec["type"])
+        if not puml:
+            console.print(
+                f"[red]O modelo não gerou o diagrama '{name}' de '{key}'.[/red]"
+            )
+            continue
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / (name + ".puml")).write_text(puml + "\n", "utf-8")
+        saved.append(out_dir / (name + ".puml"))
+        if jar is not None:
+            txt = _render_txt(jar, puml)
+            if txt:
+                console.print(Text(txt))
+    return saved, _render_svgs(jar, saved)
+
+
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 def write_project_documentation() -> str:
@@ -299,17 +669,21 @@ def write_project_documentation() -> str:
     new_groups = _groups(index)
     old_groups = _groups(old_index)
 
-    # Docs whose source group disappeared entirely → remove them.
+    # Docs whose source group disappeared entirely → remove them, along with
+    # their "<key>-meta" folders.
     stale = [key for key in old_groups if key not in new_groups]
     for key in stale:
         _doc_path(root, key).unlink(missing_ok=True)
+        _clear_meta(_meta_dir(root, key))
     _prune_empty_dirs(root / PYTHIA_DIR / DOCS_DIRNAME)
 
     # A group is (re)documented when any member is new, changed, or removed,
-    # or when its doc file is missing.
+    # or when its doc file or embeddings are missing.
     todo = sorted(
         key for key, members in new_groups.items()
-        if members != old_groups.get(key) or not _doc_path(root, key).is_file()
+        if members != old_groups.get(key)
+        or not _doc_path(root, key).is_file()
+        or not (_meta_dir(root, key) / EMBED_FILENAME).is_file()
     )
 
     console.print(
@@ -330,13 +704,21 @@ def write_project_documentation() -> str:
     _save_index(root, persisted)
 
     failed: list[str] = []
+    diagrams_written = 0
+    svgs_rendered = 0
+    slices_embedded = 0
     for i, key in enumerate(todo, 1):
         console.print(f"[bold yellow]📚  ({i}/{len(todo)})[/bold yellow] [cyan]{key}[/cyan]")
-        doc = _document_group(root, key, new_groups[key])
+        source = _group_source(root, new_groups[key])
+        doc = _document_group(key, source)
         if doc:
             path = _doc_path(root, key)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(doc + "\n", "utf-8")
+            pumls, n_svg = _generate_diagrams(root, key, source, doc)
+            diagrams_written += len(pumls)
+            svgs_rendered += n_svg
+            slices_embedded += _embed_group(root, key, new_groups[key], doc, pumls)
             persisted.update(new_groups[key])
         else:
             failed.append(key)
@@ -353,13 +735,27 @@ def write_project_documentation() -> str:
         console.print("[bold yellow]📖  Gerando a documentação geral do projeto...[/bold yellow]")
         regenerated = _write_project_doc(root, new_groups)
 
+    # Compose the per-group embeddings into the single search index — only
+    # when something actually changed since the last run (or it is missing).
+    index_slices = -1
+    if documented or stale or not (root / PYTHIA_DIR / EMBED_FILENAME).is_file():
+        console.print("[bold yellow]🧠  Compondo o índice de busca...[/bold yellow]")
+        index_slices = _compose_embeddings(root, new_groups)
+
     lines = [
         f"Project documentation updated under {root / PYTHIA_DIR}:",
         f"- {len(persisted)} file(s) hashed into {INDEX_FILENAME}",
         f"- {len(documented)} doc group(s) (re)written in {DOCS_DIRNAME}/",
+        (f"- {diagrams_written} PlantUML diagram(s) written "
+         f"({svgs_rendered} rendered to SVG) in *{META_SUFFIX}/ "
+         f"folders beside the docs"),
+        f"- {slices_embedded} text slice(s) embedded for semantic search",
         f"- {len(stale)} stale doc(s) removed",
         (f"- general documentation regenerated at {PROJECT_DOC_FILENAME}"
          if regenerated else "- general documentation unchanged"),
+        (f"- search index composed at {EMBED_FILENAME} "
+         f"({index_slices} slice(s) total)"
+         if index_slices >= 0 else "- search index unchanged"),
     ]
     if failed:
         lines.append(f"- FAILED groups (will be retried next run): {', '.join(failed)}")

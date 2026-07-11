@@ -4,4 +4,5 @@ __pycache__/
 # PyInstaller output
 build/
 dist/
+.pythia/
 *.spec

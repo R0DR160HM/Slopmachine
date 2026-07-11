@@ -9,7 +9,7 @@ from typing import Iterator
 
 import ollama
 
-from pythia.config import HISTORY_CHAR_BUDGET, OLLAMA_OPTIONS
+from pythia.config import EMBED_MODEL, HISTORY_CHAR_BUDGET, OLLAMA_OPTIONS
 from pythia.terminal import prompt_area
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
@@ -101,6 +101,27 @@ def ask(model: str, system: str, user: str, label: str) -> str:
     ):
         pass
     return strip_think(raw)
+
+
+# EmbeddingGemma is trained with task-specific prompts: document chunks and
+# search queries must be embedded with different prefixes for retrieval to
+# work well (see the model card).
+_EMBED_DOC_PREFIX = "title: none | text: "
+_EMBED_QUERY_PREFIX = "task: search result | query: "
+
+
+def embed_documents(texts: list[str]) -> list[list[float]]:
+    """Embedding vectors for document chunks (the indexing side of search)."""
+    response = ollama.embed(
+        model=EMBED_MODEL, input=[_EMBED_DOC_PREFIX + t for t in texts]
+    )
+    return [list(v) for v in response["embeddings"]]
+
+
+def embed_query(text: str) -> list[float]:
+    """Embedding vector for one search query."""
+    response = ollama.embed(model=EMBED_MODEL, input=[_EMBED_QUERY_PREFIX + text])
+    return list(response["embeddings"][0])
 
 
 def trim_messages(

@@ -26,6 +26,25 @@ DOC_GROUP_MAX_CHARS = 20_000
 # Combined per-file docs fed to the doc model for the general PROJECT.md.
 DOC_PROJECT_MAX_CHARS = 90_000
 
+# Upper bound of PlantUML diagrams generated per documented file group.
+DOC_DIAGRAMS_MAX = 6
+
+# Model that embeds sources/docs/diagrams for the project_search tool.
+EMBED_MODEL = "embeddinggemma"
+
+# embeddinggemma's context window is only 2k tokens — texts are sliced to
+# ~1k tokens (≈4 chars per token) with a small overlap so no idea is cut
+# exactly at a boundary.
+EMBED_SLICE_CHARS = 4000
+EMBED_SLICE_OVERLAP = 400
+
+# Best-matching slices returned by one project_search call.
+SEARCH_TOP_K = 5
+
+# Chars of the just-written markdown doc appended to the diagram-selection
+# prompt (on top of the truncated source).
+DOC_DIAGRAM_DOC_MAX_CHARS = 8_000
+
 # Max search results requested per query (overridable with --results).
 DEFAULT_MAX_RESULTS = 5
 
