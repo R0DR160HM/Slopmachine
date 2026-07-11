@@ -32,6 +32,7 @@ from pythia.tools import (
     image_search,
     news_search,
     parse_tool_calls,
+    show_mentioned_diagrams,
     web_search,
     write_project_documentation,
 )
@@ -39,6 +40,10 @@ from pythia.tools.shell import SHELL_OUTPUT_MAX_CHARS, ShellManager, echo_payloa
 
 MEGABRAIN_RE = re.compile(r"mega\s*brain", re.IGNORECASE)
 BRACKET_TERM_RE = re.compile(r"\[([^\]]+)\]")
+
+# When the user's message is about THIS project, web_search calls are
+# redirected to project_search (the docs index answers better than the web).
+PROJECT_SCOPE_RE = re.compile(r"this\s+project|este\s+projeto", re.IGNORECASE)
 
 # Substrings that mark a "the model backend is unreachable" error (the Ollama
 # server is down), across locales (WinError text is localized).
@@ -118,6 +123,9 @@ class ChatSession:
         self.shells = ShellManager()
         self.focus = 0  # 0 = chat; otherwise the id of the focused shell session
         self._streaming = False  # True while a model call is in flight
+        # Set once a user message mentions "this project"; from then on
+        # web_search is redirected to project_search for the whole session.
+        self._project_scope = False
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S (%A)")
         is_windows = os.name == "nt"
         self.messages: list[Message] = [
@@ -334,6 +342,12 @@ class ChatSession:
         self._update_status()
 
     def _handle_message(self, user_input: str) -> None:
+        # Checked on the ORIGINAL message (before any rewriting), so the flag
+        # survives Megabrain restructuring the prompt. Once set, it stays on
+        # for the rest of the session.
+        if PROJECT_SCOPE_RE.search(user_input):
+            self._project_scope = True
+
         # "docs" alone triggers the documentation writer, no model involved.
         if user_input.strip().lower() == "docs":
             self._write_docs(user_input)
@@ -446,6 +460,9 @@ class ChatSession:
                 console.print("[bold green]Pyth.IA:[/bold green]")
                 console.print(Markdown(strip_think(assistant_text)))
                 console.print()
+                # An answer that mentions .puml diagrams gets them rendered as
+                # ASCII art right below it (silently skipped when not possible).
+                show_mentioned_diagrams(strip_think(assistant_text))
                 # Proactive: if the answer proposes exactly one shell command,
                 # offer to run it — as if the agent had requested the shell tool.
                 command = _sole_shell_command(assistant_text)
@@ -460,6 +477,10 @@ class ChatSession:
             # of their results back together in a single message.
             feedbacks = []
             for i, tool_call in enumerate(tool_calls, 1):
+                # Questions about "this project" are answered by the local docs
+                # index, not the web: redirect web_search → project_search.
+                if self._project_scope and tool_call.get("tool") == "web_search":
+                    tool_call = {**tool_call, "tool": "project_search"}
                 # The shell tool needs user approval and the session manager, both
                 # of which live here — so it is handled in the chat layer instead of
                 # the stateless tool registry.

@@ -106,6 +106,11 @@ _FALLBACK_SKIP_DIRS = {
 
 _FENCE_RE = re.compile(r"^```[a-zA-Z-]*\s*\n(.*)\n```\s*$", re.DOTALL)
 
+# Test files are never indexed nor documented: anything inside a test/tests
+# folder, or named like foo.test.ts / foo_test.go / foo.spec.ts / test_foo.py.
+_TEST_DIR_RE = re.compile(r"^tests?$", re.IGNORECASE)
+_TEST_NAME_RE = re.compile(r"(^|[._])(test|spec)(?=[._])", re.IGNORECASE)
+
 
 # ── File discovery ─────────────────────────────────────────────────────────────
 
@@ -168,7 +173,10 @@ def _fallback_files(root: Path) -> list[Path]:
 
 
 def _is_config(name: str) -> bool:
-    return name.startswith(".") or PurePosixPath(name).suffix.lower() in _CONFIG_EXTS
+    """Configuration/metadata files, plus extensionless ones (Dockerfile,
+    LICENSE, Makefile, ...): never indexed nor documented."""
+    suffix = PurePosixPath(name).suffix.lower()
+    return name.startswith(".") or not suffix or suffix in _CONFIG_EXTS
 
 
 def _hash_file(path: Path) -> str | None:
@@ -192,10 +200,14 @@ def _scan(root: Path) -> dict[str, str]:
         if not path.is_file():  # git may list tracked files deleted from disk
             continue
         rel = path.relative_to(root).as_posix()
+        parts = rel.split("/")
         # Dotfiles and anything under a dotfolder (.git, .pythia, .github,
         # ...) are never indexed — that also covers everything this tool
         # generates, since it all lives under .pythia/.
-        if any(part.startswith(".") for part in rel.split("/")):
+        if any(part.startswith(".") for part in parts):
+            continue
+        if (any(_TEST_DIR_RE.match(part) for part in parts[:-1])
+                or _TEST_NAME_RE.search(path.name)):
             continue
         if _is_config(path.name):
             continue
@@ -469,6 +481,39 @@ def _render_txt(jar: Path, puml: str) -> str:
     return proc.stdout.decode("utf-8", "replace").rstrip()
 
 
+# Candidate ".puml" mentions inside an assistant answer (path or bare name).
+_PUML_MENTION_RE = re.compile(r"[^\s`'\"()\[\]]+\.puml")
+
+
+def show_mentioned_diagrams(text: str) -> None:
+    """Render every .puml file mentioned in `text` (and present under
+    .pythia/) as ASCII art in the chat. Anything that cannot be found or
+    rendered is silently skipped."""
+    jar = _plantuml_jar()
+    docs_root = Path.cwd() / PYTHIA_DIR
+    if jar is None or not docs_root.is_dir():
+        return
+    shown: set[Path] = set()
+    for mention in _PUML_MENTION_RE.findall(text):
+        name = PurePosixPath(mention.replace("\\", "/")).name
+        try:
+            matches = sorted(p for p in docs_root.rglob(name) if p.is_file())
+        except OSError:
+            continue
+        for path in matches:
+            if path in shown:
+                continue
+            shown.add(path)
+            try:
+                puml = path.read_text("utf-8")
+            except OSError:
+                continue
+            txt = _render_txt(jar, puml)
+            if txt:
+                console.print(f"[bold cyan]🧩  {name}[/bold cyan]")
+                console.print(Text(txt))
+
+
 def _render_svgs(jar: Path | None, pumls: list[Path]) -> int:
     """Render .puml files to .svg images saved in the same folder. Returns how
     many were rendered; warns once per run when java or the jar is missing."""
@@ -605,8 +650,9 @@ def _compose_embeddings(root: Path, groups: dict[str, dict[str, str]]) -> int:
 def _generate_diagrams(
     root: Path, key: str, source: str, doc: str
 ) -> tuple[list[Path], int]:
-    """Select and generate the group's PlantUML diagrams (one call to the
-    doc model per diagram) into "<key>-meta/" beside the group's doc,
+    """Select and generate the group's PlantUML diagrams (selection by the
+    doc model, then one forge-model call per diagram) into "<key>-meta/"
+    beside the group's doc,
     showing each one in the chat as ASCII art and rendering all of them to
     .svg beside the .puml files. Returns (saved .puml paths, svgs rendered);
     the folder is always rebuilt, so stale diagrams never linger."""
@@ -629,7 +675,7 @@ def _generate_diagrams(
             f"{spec['title'] or '(sem título)'}[/dim]"
         )
         raw = _ask_streaming(
-            config.DOC_MODEL, DOC_DIAGRAM_GEN_SYS,
+            config.FORGE_MODEL, DOC_DIAGRAM_GEN_SYS,
             (f"=== Diagram to produce ===\n"
              f"type: {spec['type']}\n"
              f"title: {spec['title'] or '(pick a fitting one)'}\n"
