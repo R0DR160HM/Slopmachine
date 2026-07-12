@@ -10,11 +10,13 @@ mirroring the source tree under .pythia/docs/ — each doc streams live in
 the terminal as it is written. Companion files sharing the
 same path and stem (app.component.ts + app.component.html) are documented
 together as one unit; stylesheets and markdown files are hashed but never
-documented. After each doc is written the model is asked which UML diagrams
+documented. Each group gets its own folder ".pythia/docs/<name>/" holding
+the markdown doc ("<basename>.md") together with its diagrams. After each
+doc is written the model is asked which UML diagrams
 apply (sequence, class, deployment, PlantUML regex — multiple of each type
 allowed) and then generates each
-one as PlantUML, one model call per diagram, saved in a "<name>-meta"
-folder beside the group's markdown doc under .pythia/docs/. Each diagram
+one as PlantUML, one model call per diagram, saved in the group's folder.
+Each diagram
 is rendered with the
 vendored PlantUML jar (vendor/plantuml, bundled into frozen builds): an
 ASCII version is shown in the chat as it is created (never saved) and an
@@ -22,10 +24,11 @@ ASCII version is shown in the chat as it is created (never saved) and an
 skipped with a warning when it is missing.
 
 The group's source files, markdown doc and PlantUML diagrams are also
-embedded with config.EMBED_MODEL (sliced to fit its 2k-token context) into
-"<name>-meta/embeddings.json"; whenever anything changed, all per-group
-embeddings are composed into .pythia/embeddings.json — the semantic index
-consumed by the project_search tool.
+embedded with config.EMBED_MODEL (sliced to fit its 2k-token context)
+directly into .pythia/embeddings.json — the semantic index consumed by the
+project_search tool. Like index.json it is maintained incrementally: the
+index is rewritten after every group, and records belonging to groups that
+disappeared or changed are dropped/replaced.
 Whenever
 any doc changed, all per-file docs are fed to the general model
 (config.DOC_SYNTH_MODEL) to produce .pythia/PROJECT.md, a comprehensive
@@ -69,13 +72,13 @@ DOCS_DIRNAME = "docs"
 INDEX_FILENAME = "index.json"
 PROJECT_DOC_FILENAME = "PROJECT.md"
 
-# Generated diagrams and embeddings for group "pythia/llm" live in
-# ".pythia/docs/pythia/llm-meta/", right next to the group's markdown doc.
+# Suffix of the folders the old layout used ("<name>-meta/", beside a
+# "<name>.md" doc) — kept only so upgraded projects get their leftovers
+# cleaned up.
 META_SUFFIX = "-meta"
 DIAGRAM_TYPES = ("sequence", "class", "deployment", "regex")
 
-# Per-group embeddings file inside "<name>-meta/"; the composed, project-wide
-# index shares the name and lives directly under .pythia/.
+# The project-wide semantic index, directly under .pythia/.
 EMBED_FILENAME = "embeddings.json"
 
 # Where the PlantUML jar lives, relative to the project source root — frozen
@@ -107,8 +110,9 @@ _FALLBACK_SKIP_DIRS = {
 _FENCE_RE = re.compile(r"^```[a-zA-Z-]*\s*\n(.*)\n```\s*$", re.DOTALL)
 
 # Test files are never indexed nor documented: anything inside a test/tests
-# folder, or named like foo.test.ts / foo_test.go / foo.spec.ts / test_foo.py.
-_TEST_DIR_RE = re.compile(r"^tests?$", re.IGNORECASE)
+# or mock/mocks folder, or named like foo.test.ts / foo_test.go / foo.spec.ts
+# / test_foo.py.
+_TEST_DIR_RE = re.compile(r"^(tests?|mocks?)$", re.IGNORECASE)
 _TEST_NAME_RE = re.compile(r"(^|[._])(test|spec)(?=[._])", re.IGNORECASE)
 
 
@@ -273,8 +277,14 @@ def _groups(index: dict[str, str]) -> dict[str, dict[str, str]]:
     return groups
 
 
+def _group_dir(root: Path, key: str) -> Path:
+    """The group's own folder under .pythia/docs/, holding its markdown doc
+    and diagrams — e.g. ".pythia/docs/pythia/llm/" for group "pythia/llm"."""
+    return root / PYTHIA_DIR / DOCS_DIRNAME / key
+
+
 def _doc_path(root: Path, key: str) -> Path:
-    return root / PYTHIA_DIR / DOCS_DIRNAME / (key + ".md")
+    return _group_dir(root, key) / (PurePosixPath(key).name + ".md")
 
 
 # ── Model calls ────────────────────────────────────────────────────────────────
@@ -349,23 +359,41 @@ def _write_project_doc(root: Path, groups: dict[str, dict[str, str]]) -> bool:
 _PLANTUML_BLOCK_RE = re.compile(r"@start\w+.*?@end\w+", re.DOTALL)
 
 
-def _meta_dir(root: Path, key: str) -> Path:
-    return root / PYTHIA_DIR / DOCS_DIRNAME / (key + META_SUFFIX)
-
-
-def _clear_meta(dir_path: Path) -> None:
-    """Remove previously generated meta files — only "<type>-*.puml/.svg" and
-    the embeddings file, so anything the user placed in the folder is
-    preserved — then the folder itself when empty."""
+def _clear_diagrams(dir_path: Path) -> None:
+    """Remove previously generated diagrams — only "<type>-*.puml/.svg", so
+    the markdown doc and anything the user placed in the folder are kept."""
     if not dir_path.is_dir():
         return
     for dtype in DIAGRAM_TYPES:
         for ext in (".puml", ".svg"):
             for stale in dir_path.glob(f"{dtype}-*{ext}"):
                 stale.unlink(missing_ok=True)
-    (dir_path / EMBED_FILENAME).unlink(missing_ok=True)
+
+
+def _remove_group_output(root: Path, key: str) -> None:
+    """Delete the group's generated doc and diagrams, then its folder when
+    nothing else (user-placed files, nested group folders) remains in it."""
+    dir_path = _group_dir(root, key)
+    _doc_path(root, key).unlink(missing_ok=True)
+    _clear_diagrams(dir_path)
     try:
         dir_path.rmdir()  # only succeeds when empty
+    except OSError:
+        pass
+
+
+def _clear_legacy(root: Path, key: str) -> None:
+    """Outputs from the old layout ("docs/<key>.md" beside a "docs/<key>-meta/"
+    folder): removed so upgraded projects don't keep two copies of every doc."""
+    docs_root = root / PYTHIA_DIR / DOCS_DIRNAME
+    (docs_root / (key + ".md")).unlink(missing_ok=True)
+    meta_dir = docs_root / (key + META_SUFFIX)
+    if not meta_dir.is_dir():
+        return
+    _clear_diagrams(meta_dir)
+    (meta_dir / EMBED_FILENAME).unlink(missing_ok=True)
+    try:
+        meta_dir.rmdir()  # only succeeds when empty
     except OSError:
         pass
 
@@ -581,19 +609,52 @@ def _slices(text: str) -> list[str]:
     return chunks
 
 
+def _embed_path(root: Path) -> Path:
+    return root / PYTHIA_DIR / EMBED_FILENAME
+
+
+def _load_embeddings(root: Path) -> list[dict]:
+    """Records from .pythia/embeddings.json; empty when the index is missing,
+    unreadable, or was built with a different embedding model (which makes
+    every group re-embed, since none appears indexed anymore)."""
+    try:
+        data = json.loads(_embed_path(root).read_text("utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if data.get("model") != config.EMBED_MODEL:
+        return []
+    records = data.get("records", [])
+    return records if isinstance(records, list) else []
+
+
+def _save_embeddings(root: Path, records: list[dict]) -> None:
+    path = _embed_path(root)
+    if not records:
+        path.unlink(missing_ok=True)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"model": config.EMBED_MODEL, "records": records},
+                   ensure_ascii=False),
+        "utf-8",
+    )
+
+
 def _embed_group(
     root: Path, key: str, members: dict[str, str], doc: str, pumls: list[Path]
-) -> int:
-    """Embed the group's source files, markdown doc and PlantUML diagrams into
-    "<key>-meta/embeddings.json". Returns how many slices were embedded; on
-    failure (e.g. the embedding model is missing) warns once and returns 0."""
+) -> list[dict]:
+    """Embed the group's source files, markdown doc and PlantUML diagrams.
+    Returns the records (tagged with the group key) ready to be merged into
+    .pythia/embeddings.json; on failure (e.g. the embedding model is missing)
+    warns once and returns []."""
     global _embed_warned
     entries: list[dict] = []
 
     def add(origin: str, kind: str, text: str) -> None:
         for i, chunk in enumerate(_slices(text)):
             entries.append(
-                {"origin": origin, "kind": kind, "slice": i, "text": chunk}
+                {"group": key, "origin": origin, "kind": kind,
+                 "slice": i, "text": chunk}
             )
 
     for rel in sorted(members):
@@ -601,14 +662,14 @@ def _embed_group(
             add(rel, "source", (root / rel).read_text("utf-8", errors="replace"))
         except OSError:
             continue
-    add(key + ".md", "doc", doc)
+    add(f"{key}/{PurePosixPath(key).name}.md", "doc", doc)
     for puml in pumls:
         try:
             add(puml.name, "diagram", puml.read_text("utf-8"))
         except OSError:
             continue
     if not entries:
-        return 0
+        return []
 
     console.print(f"[dim]🧠  Gerando {len(entries)} embedding(s)...[/dim]")
     try:
@@ -621,55 +682,23 @@ def _embed_group(
                 f"o modelo '{config.EMBED_MODEL}' está disponível no Ollama. "
                 f"A busca na documentação não será atualizada.[/yellow]"
             )
-        return 0
+        return []
     for entry, vector in zip(entries, vectors):
         entry["vector"] = vector
-    out_dir = _meta_dir(root, key)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / EMBED_FILENAME).write_text(
-        json.dumps({"records": entries}, ensure_ascii=False), "utf-8"
-    )
-    return len(entries)
-
-
-def _compose_embeddings(root: Path, groups: dict[str, dict[str, str]]) -> int:
-    """Merge every group's embeddings into .pythia/embeddings.json — the single
-    index project_search loads. Returns the total number of indexed slices."""
-    records: list[dict] = []
-    for key in sorted(groups):
-        try:
-            data = json.loads(
-                (_meta_dir(root, key) / EMBED_FILENAME).read_text("utf-8")
-            )
-        except (OSError, json.JSONDecodeError):
-            continue
-        for record in data.get("records", []):
-            record["group"] = key
-            records.append(record)
-    index_path = root / PYTHIA_DIR / EMBED_FILENAME
-    if not records:
-        index_path.unlink(missing_ok=True)
-        return 0
-    index_path.parent.mkdir(parents=True, exist_ok=True)
-    index_path.write_text(
-        json.dumps({"model": config.EMBED_MODEL, "records": records},
-                   ensure_ascii=False),
-        "utf-8",
-    )
-    return len(records)
+    return entries
 
 
 def _generate_diagrams(
     root: Path, key: str, source: str, doc: str
 ) -> tuple[list[Path], int]:
     """Select and generate the group's PlantUML diagrams (selection by the
-    doc model, then one forge-model call per diagram) into "<key>-meta/"
-    beside the group's doc,
+    doc model, then one forge-model call per diagram) into the group's folder
+    beside its markdown doc,
     showing each one in the chat as ASCII art and rendering all of them to
     .svg beside the .puml files. Returns (saved .puml paths, svgs rendered);
-    the folder is always rebuilt, so stale diagrams never linger."""
-    out_dir = _meta_dir(root, key)
-    _clear_meta(out_dir)
+    old diagrams are always dropped first, so stale ones never linger."""
+    out_dir = _group_dir(root, key)
+    _clear_diagrams(out_dir)
     specs = _select_diagrams(source, doc)
     if not specs:
         return [], 0
@@ -727,21 +756,30 @@ def write_project_documentation() -> str:
     new_groups = _groups(index)
     old_groups = _groups(old_index)
 
-    # Docs whose source group disappeared entirely → remove them, along with
-    # their "<key>-meta" folders.
+    # Docs whose source group disappeared entirely → remove their folders
+    # (and any old-layout leftovers).
     stale = [key for key in old_groups if key not in new_groups]
     for key in stale:
-        _doc_path(root, key).unlink(missing_ok=True)
-        _clear_meta(_meta_dir(root, key))
+        _remove_group_output(root, key)
+        _clear_legacy(root, key)
     _prune_empty_dirs(root / PYTHIA_DIR / DOCS_DIRNAME)
 
+    # The search index is pruned the same way: records of groups that no
+    # longer exist are dropped immediately, before any model call runs.
+    embeddings = _load_embeddings(root)
+    pruned = [r for r in embeddings if r.get("group") in new_groups]
+    if len(pruned) != len(embeddings):
+        embeddings = pruned
+        _save_embeddings(root, embeddings)
+    embedded_groups = {r.get("group") for r in embeddings}
+
     # A group is (re)documented when any member is new, changed, or removed,
-    # or when its doc file or embeddings are missing.
+    # or when its doc file or search-index records are missing.
     todo = sorted(
         key for key, members in new_groups.items()
         if members != old_groups.get(key)
         or not _doc_path(root, key).is_file()
-        or not (_meta_dir(root, key) / EMBED_FILENAME).is_file()
+        or key not in embedded_groups
     )
 
     console.print(
@@ -767,6 +805,7 @@ def write_project_documentation() -> str:
     slices_embedded = 0
     for i, key in enumerate(todo, 1):
         console.print(f"[bold yellow]📚  ({i}/{len(todo)})[/bold yellow] [cyan]{key}[/cyan]")
+        _clear_legacy(root, key)
         source = _group_source(root, new_groups[key])
         doc = _document_group(key, source)
         if doc:
@@ -776,7 +815,15 @@ def write_project_documentation() -> str:
             pumls, n_svg = _generate_diagrams(root, key, source, doc)
             diagrams_written += len(pumls)
             svgs_rendered += n_svg
-            slices_embedded += _embed_group(root, key, new_groups[key], doc, pumls)
+            # The group's records are replaced in the search index right away
+            # — like index.json, it is rewritten after every group. When
+            # embedding fails the old records are dropped anyway (they
+            # describe the previous source) and the group retries next run.
+            records = _embed_group(root, key, new_groups[key], doc, pumls)
+            embeddings = [r for r in embeddings if r.get("group") != key]
+            embeddings.extend(records)
+            _save_embeddings(root, embeddings)
+            slices_embedded += len(records)
             persisted.update(new_groups[key])
         else:
             failed.append(key)
@@ -793,27 +840,18 @@ def write_project_documentation() -> str:
         console.print("[bold yellow]📖  Gerando a documentação geral do projeto...[/bold yellow]")
         regenerated = _write_project_doc(root, new_groups)
 
-    # Compose the per-group embeddings into the single search index — only
-    # when something actually changed since the last run (or it is missing).
-    index_slices = -1
-    if documented or stale or not (root / PYTHIA_DIR / EMBED_FILENAME).is_file():
-        console.print("[bold yellow]🧠  Compondo o índice de busca...[/bold yellow]")
-        index_slices = _compose_embeddings(root, new_groups)
-
     lines = [
         f"Project documentation updated under {root / PYTHIA_DIR}:",
         f"- {len(persisted)} file(s) hashed into {INDEX_FILENAME}",
-        f"- {len(documented)} doc group(s) (re)written in {DOCS_DIRNAME}/",
+        f"- {len(documented)} doc group(s) (re)written in {DOCS_DIRNAME}/ "
+        f"(one folder per group, markdown doc + diagrams together)",
         (f"- {diagrams_written} PlantUML diagram(s) written "
-         f"({svgs_rendered} rendered to SVG) in *{META_SUFFIX}/ "
-         f"folders beside the docs"),
+         f"({svgs_rendered} rendered to SVG) beside the docs"),
         f"- {slices_embedded} text slice(s) embedded for semantic search",
         f"- {len(stale)} stale doc(s) removed",
         (f"- general documentation regenerated at {PROJECT_DOC_FILENAME}"
          if regenerated else "- general documentation unchanged"),
-        (f"- search index composed at {EMBED_FILENAME} "
-         f"({index_slices} slice(s) total)"
-         if index_slices >= 0 else "- search index unchanged"),
+        f"- search index at {EMBED_FILENAME}: {len(embeddings)} slice(s) total",
     ]
     if failed:
         lines.append(f"- FAILED groups (will be retried next run): {', '.join(failed)}")
