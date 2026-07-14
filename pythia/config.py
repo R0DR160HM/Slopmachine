@@ -34,10 +34,7 @@ CODE_REINDEX_IDLE_SECONDS = 300
 # terminated so the session never hangs.
 CODE_BUILD_TIMEOUT_SECONDS = 600
 
-# Upper bound of PlantUML diagrams generated per documented file group.
-DOC_DIAGRAMS_MAX = 6
-
-# Model that embeds sources/docs/diagrams for the project_search tool.
+# Model that embeds sources/docs for the project_search tool.
 EMBED_MODEL = "embeddinggemma"
 
 # embeddinggemma's context window is only 2k tokens — texts are sliced to
@@ -48,10 +45,6 @@ EMBED_SLICE_OVERLAP = 400
 
 # Best-matching slices returned by one project_search call.
 SEARCH_TOP_K = 5
-
-# Chars of the just-written markdown doc appended to the diagram-selection
-# prompt (on top of the truncated source).
-DOC_DIAGRAM_DOC_MAX_CHARS = 8_000
 
 # Max search results requested per query (overridable with --results).
 DEFAULT_MAX_RESULTS = 5
@@ -66,11 +59,21 @@ FORGED_RESULT_MAX_CHARS = 4000
 # model's reply.
 NUM_CTX = 30_000
 
-# Options passed on every ollama.chat() call.
-OLLAMA_OPTIONS = {"num_thread": 8, "num_ctx": NUM_CTX}
+# Options passed on every ollama.chat() call. repeat_penalty is Ollama's
+# default value, pinned so a model whose Modelfile disables it still gets it;
+# repeat_last_n widens the penalty's horizon from the 64-token default so
+# multi-line repetition loops are discouraged at generation time, before the
+# streaming loop guard has to cut them off.
+OLLAMA_OPTIONS = {
+    "num_thread": 8,
+    "num_ctx": NUM_CTX,
+    "repeat_penalty": 1.1,
+    "repeat_last_n": 256,
+}
 
-# Code Mode samples nearly greedily: Ollama's default temperature (~0.8) is
-# what makes the agent flip-flop on its own edits.
+# Code Mode and the doc writer sample nearly greedily: Ollama's default
+# temperature (~0.8) is what makes the agent flip-flop on its own edits and
+# the docs embellish beyond the source.
 CODE_OLLAMA_OPTIONS = {**OLLAMA_OPTIONS, "temperature": 0.2}
 
 # Char budget for the conversation we send each turn. Roughly NUM_CTX * 4 chars
@@ -83,8 +86,8 @@ MAX_TOOL_CALLS = 10
 
 # Repetition guard on EVERY streamed response (chat, docs, deep research,
 # code...): when the last N complete lines already appeared earlier in the
-# same response, the model is looping — generation is stopped and the
-# repeated tail removed.
+# same response — verbatim, or identical after erasing list numbers/bullets —
+# the model is looping; generation is stopped and the repeated tail removed.
 STREAM_LOOP_WINDOW_LINES = 10
 
 # Delphic maxims shown under the title — one is drawn at random per session.

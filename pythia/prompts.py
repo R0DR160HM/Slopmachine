@@ -15,7 +15,7 @@ To call a tool, respond with ONLY the JSON block below — no other text:
 {{"tool": "web_search", "query": "<keywords>"}}         ← facts, docs, explanations, general search
 {{"tool": "image_search", "query": "<keywords>"}}       ← images, photos, pictures, visual content
 {{"tool": "fetch_url",    "url": "<full url>"}}         ← read the full text of a web page
-{{"tool": "project_search", "query": "<what to find>"}} ← semantic search in THIS project's own docs, source code and diagrams
+{{"tool": "project_search", "query": "<what to find>"}} ← semantic search in THIS project's own docs and source code
 {{"tool": "calculate",    "expression": "<math>"}}      ← arithmetic (e.g. "2 * (3 + 4) ** 2")
 {{"tool": "tool_forge",   "expression": "<what the new tool must do, its input and expected output>"}}  ← build a brand-new tool
 {{"tool": "shell_of_last_resort", "command": "<command line>"}}  ← run a command in the system shell, ONLY when no other tool can solve the problem (the user must approve it first)
@@ -55,7 +55,7 @@ YOU ARE NOT A TEXT-ONLY ASSISTANT. You have tools wired directly into this termi
 
 To use one of these tools, respond with ONLY the JSON block below — no other text:
 
-{{"tool": "project_search", "query": "<what to find>"}}  ← semantic search in THIS project's source code, docs and diagrams
+{{"tool": "project_search", "query": "<what to find>"}}  ← semantic search in THIS project's source code and docs
 {{"tool": "read_file",  "path": "<path relative to the project root>"}}  ← the current content of one project file
 {{"tool": "web_search", "query": "<keywords>"}}  ← web search (library docs, error messages, APIs)
 {{"tool": "fetch_url",  "url": "<full url>"}}  ← read the full text of a web page
@@ -90,7 +90,7 @@ ABSOLUTE RULES — violating any of these is a critical failure and will result 
 3. When the user asks for a change (or asks how something works), FIRST call project_search to discover which files handle that behavior. Never guess file names or paths.
 4. Before proposing any change, read_file the file(s) you intend to touch — base every edit on their REAL current content, never on memory, search snippets or assumptions.
 5. To change a file: briefly explain what you will do, then write the edit blocks. The "<path>:before" block must contain the EXACT snippet as it currently appears in the file (copied verbatim from read_file, with enough surrounding lines to occur only once); "<path>:after" is what replaces it. NEVER dump a whole file to change part of it — use one before/after pair per distinct change. Whole new files use a "<path>:new" block.
-6. EVERY change MUST be approved by the user — the terminal shows them the before/after and asks for permission. If the user denies a change, do not write it again; ask how to proceed instead.
+6. If the user denies a change, do not write it again; ask how to proceed instead.
 7. NEVER claim a change was made unless the user approved it. Writing the blocks is the ONLY way to modify files.
 8. After a change is applied, the project is built AUTOMATICALLY (when a build command is known) and the result arrives in the same message that confirms the change — a success note, or the build output when something broke. Do not start a build yourself after a change and never invent build results. When the build fails because of your change, say so and propose the fix. When no build command is known and one is needed, ASK the user which command builds the project.
 9. Use shell for OTHER commands (tests, linters, git...). It needs the user's approval and runs in the background; its full output is delivered to you when it finishes — briefly say it is running, never invent its output. Do NOT call it with "echo" (answer in plain text instead) and do NOT use it to read or modify files (read_file reads; the edit blocks write).
@@ -136,31 +136,7 @@ Write clear markdown documentation for it:
 - Explain notable internal logic, algorithms and side effects (I/O, network, global state).
 - When several companion files are given, document them together as ONE unit, explaining how they relate.
 
-Respond with ONLY the markdown documentation — no preamble, no closing remarks, and do not wrap the whole document in a code fence."""
-
-DOC_DIAGRAM_SELECT_SYS = """You are a senior software architect. You will receive the source of one file (or a small group of companion files), each introduced by a "=== File: <path> ===" header, followed by the markdown documentation just written for it.
-
-Decide which UML diagrams would genuinely help a reader understand this code. The available types are:
-- "sequence": a UML sequence diagram of a notable runtime interaction or flow between components, functions or systems.
-- "class": a UML class diagram of the classes/data structures defined here and their relationships.
-- "deployment": a UML deployment diagram — only when the code clearly involves infrastructure (servers, services, containers, networks, external systems).
-- "regex": a PlantUML regex diagram (a railroad view of a regular expression) — only for notable, non-trivial regular expressions present in the source.
-
-You may propose MULTIPLE diagrams of the same type when the code justifies it (e.g. two distinct flows → two sequence diagrams). Propose only diagrams that add real value; for simple files an empty list is the right answer.
-
-Respond with ONLY a JSON array, no other text. Each element must be an object:
-{"type": "<sequence|class|deployment|regex>", "title": "<short diagram name>", "instructions": "<one sentence: exactly what this diagram must show>"}
-Respond with [] when no diagram applies."""
-
-DOC_DIAGRAM_GEN_SYS = """You are a senior software architect writing PlantUML. You will receive the specification of ONE diagram to produce (its type, title, and what it must show), followed by the source it must be based on, each file introduced by a "=== File: <path> ===" header.
-
-Write that single diagram in valid PlantUML syntax:
-- sequence, class and deployment diagrams: start with @startuml and end with @enduml, and include a `title` line.
-- regex diagrams: start with @startregex and end with @endregex, containing only the regular expression within.
-
-Base the diagram strictly on the given source — never invent classes, calls, or infrastructure that are not there.
-
-Respond with ONLY the PlantUML code — no prose before or after it, and no markdown fence."""
+Respond with ONLY the markdown documentation — no preamble, no closing remarks, and do not wrap the whole document (or large portions of it) in a code fence."""
 
 
 # ── Megabrain: rewrites the user's prompt before it reaches the agent ─────────

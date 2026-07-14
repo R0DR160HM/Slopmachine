@@ -92,22 +92,54 @@ def _call_pulling_model(model: str, call):
         return call()
 
 
+# List markers ("3.", "b)", "-", "*", "•") and digits are exactly what a
+# looping model varies between otherwise-identical lines, so both are erased
+# before lines are compared.
+_LIST_PREFIX_RE = re.compile(r"^\s*(?:\d+[.):]|[a-zA-Z][.)]|[-*•+])\s+")
+_DIGITS_RE = re.compile(r"\d+")
+
+# A canonical-match loop verdict needs at least this many letters across the
+# window: with digits erased, tables of numbers (`| 2021 | 15 |` rows) all
+# canonicalize alike, and this keeps them from reading as a loop.
+_LOOP_MIN_LETTERS = 20
+
+
+def _canon_line(line: str) -> str:
+    """A line reduced to what a repetition loop keeps constant: list markers
+    and numbers erased, whitespace collapsed, case folded."""
+    line = _LIST_PREFIX_RE.sub("", line)
+    line = _DIGITS_RE.sub("#", line)
+    return " ".join(line.split()).lower()
+
+
 def _strip_stream_loop(raw: str) -> str | None:
     """Repetition-loop detection on a partially streamed response: when the
     last STREAM_LOOP_WINDOW_LINES complete lines already appeared earlier in
-    the same text, the model is looping. Returns `raw` with that repeated
+    the same text — verbatim, or up to renumbering/bullet churn (see
+    _canon_line) — the model is looping. Returns `raw` with that repeated
     tail (and the partial line after it) removed — or None when there is no
     loop and streaming should continue."""
     lines = raw.split("\n")
     complete = lines[:-1]  # the last element is a partial line, still coming
-    if len(complete) < STREAM_LOOP_WINDOW_LINES:
+    window = STREAM_LOOP_WINDOW_LINES
+    if len(complete) < window:
         return None
-    tail = "\n".join(complete[-STREAM_LOOP_WINDOW_LINES:])
+    tail = "\n".join(complete[-window:])
     if not tail.strip():
         return None  # a run of blank lines is spacing, not a loop
-    if raw.count(tail) < 2:  # must also appear BEFORE this trailing block
+    truncated = "\n".join(complete[:-window])
+    if raw.count(tail) >= 2:  # the tail also appears verbatim earlier
+        return truncated
+    # Near-duplicate loops (only the list numbers change, say) escape the
+    # verbatim match — compare canonicalized lines instead.
+    canon = [_canon_line(line) for line in complete]
+    canon_tail = canon[-window:]
+    if sum(ch.isalpha() for ch in "".join(canon_tail)) < _LOOP_MIN_LETTERS:
         return None
-    return "\n".join(complete[:-STREAM_LOOP_WINDOW_LINES])
+    for i in range(len(canon) - window):
+        if canon[i : i + window] == canon_tail:
+            return truncated
+    return None
 
 
 def stream_chat(label: str, **chat_kwargs) -> Iterator[str]:

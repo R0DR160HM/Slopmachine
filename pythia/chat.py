@@ -142,18 +142,6 @@ def _total_ram_bytes() -> int | None:
         return None
 
 
-def _ram_gauge(used_bytes: int) -> str:
-    """A small 5-block gauge of the RAM the loaded models take, e.g.
-    "🧠 ▮▮▯▯▯ 4.2/16GB" — just the used figure when total RAM is unknown."""
-    used_gb = used_bytes / 2**30
-    total = _total_ram_bytes()
-    if not total:
-        return f"🧠 {used_gb:.1f}GB em uso"
-    filled = round(5 * min(used_bytes / total, 1))
-    bar = "▮" * filled + "▯" * (5 - filled)
-    return f"🧠 {bar} {used_gb:.1f}/{total / 2**30:.0f}GB"
-
-
 def _git_branch() -> str | None:
     """The current git branch of the cwd, or None outside a repo / no git."""
     try:
@@ -339,7 +327,6 @@ class ChatSession:
             "[magenta]⚡ megabrain[/magenta]" if self._megabrain
             else "[dim]⚡ megabrain off[/dim]",
             "[green]🟢 ollama[/green]" if reachable else "[red]🔴 ollama[/red]",
-            _ram_gauge(used),
         ]
         console.print("[dim] · [/dim]".join(chips))
         if self.code_mode:

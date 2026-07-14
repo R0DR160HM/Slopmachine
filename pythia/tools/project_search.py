@@ -1,8 +1,8 @@
 """project_search: semantic search over the project's documentation index.
 
 Embeds the query with the same model used by write_project_documentation and
-returns the best-matching slices of source code, markdown docs and PlantUML
-diagrams from .pythia/embeddings.json as extra context for the agent. When
+returns the best-matching slices of source code and markdown docs
+from .pythia/embeddings.json as extra context for the agent. When
 the index does not exist yet, the returned message instructs the agent to
 tell the user to build the docs first.
 """
