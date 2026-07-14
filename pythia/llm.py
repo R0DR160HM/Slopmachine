@@ -9,8 +9,13 @@ from typing import Iterator
 
 import ollama
 
-from pythia.config import EMBED_MODEL, HISTORY_CHAR_BUDGET, OLLAMA_OPTIONS
-from pythia.terminal import prompt_area
+from pythia.config import (
+    EMBED_MODEL,
+    HISTORY_CHAR_BUDGET,
+    OLLAMA_OPTIONS,
+    STREAM_LOOP_WINDOW_LINES,
+)
+from pythia.terminal import console, prompt_area
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 _THINK_TAG = "<think>"
@@ -42,21 +47,102 @@ def visible_text(partial: str) -> str:
     return text
 
 
+# ── Lazy model installation ────────────────────────────────────────────────────
+# No model is downloaded up front: every call simply runs, and only when the
+# server answers "model not found" is the model pulled and the call retried.
+
+def _is_missing_model_error(exc: BaseException) -> bool:
+    """True for the Ollama error that means the model is not installed."""
+    if isinstance(exc, ollama.ResponseError):
+        text = str(getattr(exc, "error", "") or exc).lower()
+        return getattr(exc, "status_code", None) == 404 or "not found" in text
+    return False
+
+
+def pull_model(model: str) -> None:
+    """Download one model now, streaming its progress on the status line."""
+    console.print(
+        f"[yellow]⬇️  Modelo '{model}' não está instalado — baixando...[/yellow]"
+    )
+    try:
+        for part in ollama.pull(model=model, stream=True):
+            get = part.get if isinstance(part, dict) else (
+                lambda key, part=part: getattr(part, key, None)
+            )
+            completed, total = get("completed"), get("total")
+            if completed and total:
+                detail = f"{completed * 100 // total}%"
+            else:
+                detail = str(get("status") or "...")
+            prompt_area.set_status(f"\033[2;36m⬇️  {model}: {detail}\033[0m")
+    finally:
+        prompt_area.set_status("")
+    console.print(f"[dim]Modelo '{model}' instalado.[/dim]")
+
+
+def _call_pulling_model(model: str, call):
+    """Run `call()`; when it fails because `model` is not installed, pull the
+    model and run it once more."""
+    try:
+        return call()
+    except Exception as e:
+        if not _is_missing_model_error(e):
+            raise
+        pull_model(model)
+        return call()
+
+
+def _strip_stream_loop(raw: str) -> str | None:
+    """Repetition-loop detection on a partially streamed response: when the
+    last STREAM_LOOP_WINDOW_LINES complete lines already appeared earlier in
+    the same text, the model is looping. Returns `raw` with that repeated
+    tail (and the partial line after it) removed — or None when there is no
+    loop and streaming should continue."""
+    lines = raw.split("\n")
+    complete = lines[:-1]  # the last element is a partial line, still coming
+    if len(complete) < STREAM_LOOP_WINDOW_LINES:
+        return None
+    tail = "\n".join(complete[-STREAM_LOOP_WINDOW_LINES:])
+    if not tail.strip():
+        return None  # a run of blank lines is spacing, not a loop
+    if raw.count(tail) < 2:  # must also appear BEFORE this trailing block
+        return None
+    return "\n".join(complete[:-STREAM_LOOP_WINDOW_LINES])
+
+
 def stream_chat(label: str, **chat_kwargs) -> Iterator[str]:
     """Stream ollama.chat, yielding the accumulated raw text as tokens arrive.
+
+    When the model is not installed yet (the server answers "not found" —
+    always before the first token), it is pulled and the request restarted.
 
     The request runs in a worker thread so that, between tokens, a live
     elapsed timer is rendered on the status line just above the input prompt,
     e.g. "Pensando... (3s)". The last yielded value is the complete response.
     Errors from the worker are re-raised in the calling thread.
     """
+    for attempt in (1, 2):
+        try:
+            yield from _stream_chat_once(label, **chat_kwargs)
+            return
+        except Exception as e:
+            if attempt == 1 and _is_missing_model_error(e):
+                pull_model(str(chat_kwargs.get("model")))
+                continue
+            raise
+
+
+def _stream_chat_once(label: str, **chat_kwargs) -> Iterator[str]:
     tokens: queue.Queue = queue.Queue()
     chat_kwargs.setdefault("think", False)
+    stop = threading.Event()  # set to abort the generation server-side
 
     def _worker() -> None:
         try:
             for chunk in ollama.chat(stream=True, **chat_kwargs):
                 tokens.put(chunk["message"]["content"])
+                if stop.is_set():
+                    break  # closes the stream; the server stops generating
             tokens.put(_DONE)
         except BaseException as exc:  # re-raised in the calling thread below
             tokens.put(exc)
@@ -82,8 +168,20 @@ def stream_chat(label: str, **chat_kwargs) -> Iterator[str]:
                 raise item
             if item:
                 raw += item
+                # Only a chunk that completes a line can close a loop window.
+                if "\n" in item:
+                    truncated = _strip_stream_loop(raw)
+                    if truncated is not None:
+                        stop.set()
+                        console.print(
+                            "[dim]🔁  Loop de repetição detectado — resposta "
+                            "interrompida.[/dim]"
+                        )
+                        yield truncated
+                        return
                 yield raw
     finally:
+        stop.set()  # a consumer that bails early also stops the generation
         prompt_area.set_status("")
 
 
@@ -112,15 +210,17 @@ _EMBED_QUERY_PREFIX = "task: search result | query: "
 
 def embed_documents(texts: list[str]) -> list[list[float]]:
     """Embedding vectors for document chunks (the indexing side of search)."""
-    response = ollama.embed(
+    response = _call_pulling_model(EMBED_MODEL, lambda: ollama.embed(
         model=EMBED_MODEL, input=[_EMBED_DOC_PREFIX + t for t in texts]
-    )
+    ))
     return [list(v) for v in response["embeddings"]]
 
 
 def embed_query(text: str) -> list[float]:
     """Embedding vector for one search query."""
-    response = ollama.embed(model=EMBED_MODEL, input=[_EMBED_QUERY_PREFIX + text])
+    response = _call_pulling_model(EMBED_MODEL, lambda: ollama.embed(
+        model=EMBED_MODEL, input=[_EMBED_QUERY_PREFIX + text]
+    ))
     return list(response["embeddings"][0])
 
 

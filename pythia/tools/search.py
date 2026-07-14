@@ -1,15 +1,51 @@
 """DuckDuckGo search (text, image, news) and result formatting."""
 
+import re
+
 from ddgs import DDGS
 
 from pythia.config import DEFAULT_MAX_RESULTS
 
+# Terms that mark an image result as inappropriate. The first group is
+# matched as plain substrings (unambiguous even inside concatenated URL
+# slugs like "freepornvideos"); the \b-bounded group avoids false positives
+# on innocent words (sussex, canal, document, ...).
+_NSFW_RE = re.compile(
+    r"porn|pornhub|xvideos|xnxx|onlyfans|hentai|nsfw|milf|blowjob|handjob"
+    r"|bukkake|creampie|deepthroat|xhamster|redtube|youporn|camgirl|stripper"
+    r"|femboy"
+    r"|\b(?:xxx|nude|nudes|naked|sex|sexy|erotic|erotica|boobs|tits|pussy"
+    r"|dick|cock|penis|vagina|anal|cum|fetish|bdsm|bondage|escort|rape"
+    r"|gore|beheading|snuff|trans)\b",
+    re.IGNORECASE,
+)
 
-def _search(kind: str, query: str, max_results: int) -> list[dict]:
-    """Run one DDGS search of the given kind; return [] on any failure."""
+
+def is_inappropriate_image(result: dict) -> bool:
+    """True when an image result's name — its title or any of its URLs —
+    contains inappropriate content and it must not be shown or listed."""
+    fields = (
+        result.get("title", ""),
+        result.get("image", ""),
+        result.get("thumbnail", ""),
+        result.get("url", ""),
+    )
+    return any(_NSFW_RE.search(str(f)) for f in fields if f)
+
+
+def _search(kind: str, query: str, max_results: int, **kwargs) -> list[dict]:
+    """Run one DDGS search of the given kind; return [] on any failure.
+    Extra kwargs (e.g. safesearch) are dropped and the search retried when
+    the installed ddgs version does not accept them."""
     try:
         with DDGS() as ddgs:
-            results = getattr(ddgs, kind)(query, max_results=max_results)
+            method = getattr(ddgs, kind)
+            try:
+                results = method(query, max_results=max_results, **kwargs)
+            except TypeError:
+                if not kwargs:
+                    raise
+                results = method(query, max_results=max_results)
     except Exception:
         return []
     return results or []
@@ -20,7 +56,11 @@ def web_search(query: str, max_results: int = DEFAULT_MAX_RESULTS) -> list[dict]
 
 
 def image_search(query: str, max_results: int = DEFAULT_MAX_RESULTS) -> list[dict]:
-    return _search("images", query, max_results)
+    """Image search with DDGS safe search forced on; results whose title or
+    URLs contain inappropriate terms are dropped before anyone (the terminal
+    renderer or the model) sees them."""
+    results = _search("images", query, max_results, safesearch="on")
+    return [r for r in results if not is_inappropriate_image(r)]
 
 
 def news_search(query: str, max_results: int = DEFAULT_MAX_RESULTS) -> list[dict]:

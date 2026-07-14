@@ -5,6 +5,7 @@ import os
 import urllib.request
 
 from pythia.terminal import console, prompt_area
+from pythia.tools.search import is_inappropriate_image
 
 DOWNLOAD_TIMEOUT = 15
 IMAGE_ROWS = 30  # character rows (each covers 2 pixel rows)
@@ -40,6 +41,10 @@ def display_images(results: list[dict], max_display: int = 3) -> None:
     for r in results:
         if len(panels) >= max_display:
             break
+        # Safety net: image_search already filters these out, but never
+        # render a result whose name is inappropriate, wherever it came from.
+        if is_inappropriate_image(r):
+            continue
         url = r.get("thumbnail") or r.get("image")
         if not url:
             continue

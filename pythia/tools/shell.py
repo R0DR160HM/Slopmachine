@@ -8,10 +8,11 @@ output becoming indistinguishable. The user can send lines to a session's stdin
 (line-based interactivity: REPLs and prompts work; full-screen curses apps do
 not).
 
-Sessions are either user-started (``!<command>`` in the prompt) or agent-started
-(the ``shell`` tool, after the user approves it). When an agent-started session
-finishes it is pushed onto ``ShellManager.completions`` so the chat loop can feed
-its output back to the model.
+Sessions are user-started (``!<command>`` in the prompt), agent-started (the
+``shell`` tool, after the user approves it) or auto-started (Code Mode's
+post-change build, which waits for the result itself). Only agent-started
+sessions are pushed onto ``ShellManager.completions`` when they finish, so the
+chat loop can feed their output back to the model.
 """
 
 import os

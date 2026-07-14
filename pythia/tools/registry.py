@@ -231,3 +231,32 @@ def execute_tool_call(call: dict[str, Any], max_results: int) -> str:
     """Run a parsed tool call and return the feedback message for the model."""
     handler = _HANDLERS.get(call["tool"], _run_forged_tool)
     return handler(call, max_results)
+
+
+def available_tools() -> list[str]:
+    """One call template per tool that can actually be invoked right now —
+    the built-ins (plus Code Mode's extra tools once registered) and every
+    tool forged during this session. Used to tell a repair model exactly
+    which calls are valid."""
+    lines = []
+    for name, keys in _REQUIRED_KEYS.items():
+        args = ", ".join(f'"{k}": "<{k}>"' for k in keys)
+        lines.append(f'{{"tool": "{name}", {args}}}')
+    for tool in _forged_tools.values():
+        lines.append(
+            f'{{"tool": "{tool.name}", "input": "<input string>"}}'
+            f"  ← {tool.description}"
+        )
+    return lines
+
+
+def register_tool(
+    name: str,
+    required_keys: tuple[str, ...],
+    handler: Callable[[dict, int], str],
+) -> None:
+    """Plug an extra built-in tool into the registry at runtime. Used by Code
+    Mode to add its file tools when (and only when) that mode starts, so the
+    other modes never parse nor execute them."""
+    _REQUIRED_KEYS[name] = tuple(required_keys)
+    _HANDLERS[name] = handler

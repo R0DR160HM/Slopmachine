@@ -18,8 +18,6 @@ from pythia import config
 from pythia.config import (
     DEFAULT_MAX_RESULTS,
     DEFAULT_MODEL,
-    MEGABRAIN_MODEL,
-    SLOP_FORGE_MODEL,
     SLOP_MODEL,
 )
 
@@ -72,9 +70,15 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--slop",
         action="store_true",
-        help=f"Use the tiniest models: {SLOP_MODEL} for chat and doc synthesis, "
-             f"{SLOP_FORGE_MODEL} for tool forging and per-file docs "
-             "(overrides --model)",
+        help=f"Use the tiniest model ({SLOP_MODEL}) for everything: chat, "
+             "tool forging and per-file docs (overrides --model)",
+    )
+    parser.add_argument(
+        "--code",
+        action="store_true",
+        help="Code Mode: a coding agent over the project in the current "
+             "directory. Documents/indexes the project on startup and chats "
+             "with the forge model by default (combines with --slop)",
     )
     parser.add_argument(
         "prompt",
@@ -155,57 +159,6 @@ def _wait_reachable(retries: int = SERVER_LIST_RETRIES) -> bool:
     return False
 
 
-def _installed_models() -> set[str]:
-    """Return the tags already pulled, waiting for the server if needed."""
-    import ollama
-
-    for attempt in range(SERVER_LIST_RETRIES):
-        try:
-            listing = ollama.list()
-        except Exception:
-            time.sleep(0.5)
-            continue
-        return {
-            _canonical(name)
-            for m in getattr(listing, "models", None) or []
-            if (name := getattr(m, "model", None) or getattr(m, "name", None))
-        }
-    sys.exit("❌  O servidor do Ollama não respondeu — tente novamente.")
-
-
-def _canonical(name: str) -> str:
-    """Ollama treats a tagless name as ':latest'; compare accordingly."""
-    return name if ":" in name else f"{name}:latest"
-
-
-def _ensure_models(chat_model: str) -> None:
-    """Pull every model the app can use that is missing, so nothing has to be
-    downloaded mid-session: chat, megabrain, tool-forge, and the two
-    documentation models (per-file docs + PROJECT.md synthesis).
-
-    The doc/forge models are read from `config` at call time so that a --slop
-    run (which overrides them before this is called) pulls the tiny tier.
-
-    `ollama pull` runs attached to the terminal so its own progress bar is
-    visible during the download.
-    """
-    installed = _installed_models()
-    needed = dict.fromkeys((  # dict.fromkeys dedupes while keeping order
-        chat_model,
-        MEGABRAIN_MODEL,
-        config.FORGE_MODEL,
-        config.DOC_MODEL,
-        config.DOC_SYNTH_MODEL,
-    ))
-    for model in needed:
-        if _canonical(model) in installed:
-            continue
-        print(f"⬇️  Modelo '{model}' não encontrado localmente — baixando...")
-        result = subprocess.run(["ollama", "pull", model])
-        if result.returncode != 0:
-            sys.exit(f"❌  Falha ao baixar o modelo '{model}'.")
-
-
 def _unload_models() -> None:
     """Ask the Ollama server to unload every loaded model, freeing RAM/VRAM.
 
@@ -269,9 +222,12 @@ def main() -> None:
         args.model = SLOP_MODEL
         # forge.py and documentation.py read these through the config module
         # at call time, so overriding the attributes here reaches every call.
-        config.FORGE_MODEL = SLOP_FORGE_MODEL
-        config.DOC_MODEL = SLOP_FORGE_MODEL
-        config.DOC_SYNTH_MODEL = SLOP_MODEL
+        config.FORGE_MODEL = SLOP_MODEL
+        config.DEFAULT_MODEL = SLOP_MODEL
+    if args.code and (args.slop or args.model == DEFAULT_MODEL):
+        # Code Mode chats with the forge (coder) model unless the user picked
+        # a model explicitly; under --slop that is the tiny coder tier.
+        args.model = config.FORGE_MODEL
     _check_dependencies()
 
     # Imported only after the dependency check — these pull in rich/ollama.
@@ -292,12 +248,14 @@ def main() -> None:
         return _wait_reachable()
 
     try:
-        _ensure_models(args.model)
+        # No model is pulled up front: each one is downloaded on first use,
+        # when the Ollama server answers that it is not installed (llm.py).
         with raw_input_mode():
             session = ChatSession(
                 model=args.model,
                 max_results=args.results,
                 ensure_server=ensure_server,
+                code_mode=args.code,
             )
             session.run(initial_prompt=" ".join(args.prompt).strip())
     finally:

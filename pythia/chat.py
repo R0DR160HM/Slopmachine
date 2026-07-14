@@ -3,23 +3,39 @@
 import itertools
 import os
 import queue
+import random
 import re
 import signal
+import subprocess
+import time
 from contextlib import contextmanager
 from datetime import datetime
 
+from rich.console import Group
 from rich.markdown import Markdown
 from rich.panel import Panel
+from rich.syntax import Syntax
 from rich.text import Text
 
+from pythia import config
 from pythia.config import (
+    CODE_BUILD_TIMEOUT_SECONDS,
+    CODE_MEGABRAIN_MODEL,
+    CODE_OLLAMA_OPTIONS,
+    CODE_REINDEX_IDLE_SECONDS,
+    DELPHIC_MAXIMS,
     MAX_TOOL_CALLS,
     MEGABRAIN_MODEL,
     OLLAMA_OPTIONS,
     THINKING_LABELS,
 )
 from pythia.llm import Message, ask, strip_think, trim_messages
-from pythia.prompts import MEGABRAIN_REWRITE_SYS, SYSTEM_PROMPT_TEMPLATE
+from pythia.prompts import (
+    CODE_SYSTEM_PROMPT_TEMPLATE,
+    JSON_FIX_SYS,
+    MEGABRAIN_REWRITE_SYS,
+    SYSTEM_PROMPT_TEMPLATE,
+)
 from pythia.research import DEEP_RESEARCH_RE, extract_topic, run_deep_research
 from pythia.streaming import stream_markdown
 from pythia.terminal import INTERRUPT, InputReader, console, prompt_area
@@ -36,6 +52,17 @@ from pythia.tools import (
     web_search,
     write_project_documentation,
 )
+from pythia.tools.code_mode import (
+    CodeFileError,
+    build_info_line,
+    detect_build_commands,
+    parse_block_edits,
+    prepare_create,
+    prepare_edit,
+    project_rel,
+    register_code_tools,
+)
+from pythia.tools.registry import available_tools
 from pythia.tools.shell import SHELL_OUTPUT_MAX_CHARS, ShellManager, echo_payload
 
 MEGABRAIN_RE = re.compile(r"mega\s*brain", re.IGNORECASE)
@@ -48,6 +75,11 @@ PROJECT_SCOPE_RE = re.compile(r"this\s+project|este\s+projeto", re.IGNORECASE)
 # Substrings that mark a "the model backend is unreachable" error (the Ollama
 # server is down), across locales (WinError text is localized).
 _CONN_ERR_MARKERS = ("10061", "recus", "refus", "connect")
+
+# An answer that contains this but produced no parseable tool call is a
+# BROKEN tool call (malformed JSON or a tool that does not exist) — it gets
+# a repair pass instead of being shown to the user as prose.
+_BROKEN_TOOL_CALL_RE = re.compile(r'\{\s*"tool"\s*:\s*"')
 
 
 def _is_connection_error(error: Exception) -> bool:
@@ -67,6 +99,72 @@ def _sole_shell_command(text: str) -> str | None:
         if lang.strip().lower() in _SHELL_LANGS and body.strip():
             commands.append(body.strip())
     return commands[0] if len(commands) == 1 else None
+
+
+# ── Header widgets: server/RAM stats, git branch (best-effort helpers) ────────
+
+def _ollama_stats() -> tuple[bool, int]:
+    """(server reachable now, bytes of RAM/VRAM the loaded models occupy)."""
+    try:
+        import ollama
+
+        models = getattr(ollama.ps(), "models", None) or []
+    except Exception:
+        return False, 0
+    return True, sum(int(getattr(m, "size", 0) or 0) for m in models)
+
+
+def _total_ram_bytes() -> int | None:
+    """Physical RAM of this machine, or None when it can't be determined."""
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            class _MemStatus(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            status = _MemStatus(dwLength=ctypes.sizeof(_MemStatus))
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+                return int(status.ullTotalPhys)
+            return None
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+    except Exception:
+        return None
+
+
+def _ram_gauge(used_bytes: int) -> str:
+    """A small 5-block gauge of the RAM the loaded models take, e.g.
+    "🧠 ▮▮▯▯▯ 4.2/16GB" — just the used figure when total RAM is unknown."""
+    used_gb = used_bytes / 2**30
+    total = _total_ram_bytes()
+    if not total:
+        return f"🧠 {used_gb:.1f}GB em uso"
+    filled = round(5 * min(used_bytes / total, 1))
+    bar = "▮" * filled + "▯" * (5 - filled)
+    return f"🧠 {bar} {used_gb:.1f}/{total / 2**30:.0f}GB"
+
+
+def _git_branch() -> str | None:
+    """The current git branch of the cwd, or None outside a repo / no git."""
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, timeout=3,
+        )
+    except Exception:
+        return None
+    branch = out.stdout.strip()
+    return branch if out.returncode == 0 and branch else None
 
 
 def pre_search_brackets(user_input: str, max_results: int) -> tuple[str, str]:
@@ -112,9 +210,34 @@ def pre_search_brackets(user_input: str, max_results: int) -> tuple[str, str]:
 class ChatSession:
     """One interactive session: owns the message history and the input reader."""
 
-    def __init__(self, model: str, max_results: int, ensure_server=None) -> None:
+    def __init__(
+        self, model: str, max_results: int, ensure_server=None,
+        code_mode: bool = False,
+    ) -> None:
         self.model = model  # may be upgraded to Megabrain mid-session
         self.max_results = max_results
+        self._megabrain = False  # shown as a chip in the header badges
+        # Code Mode (--code): coding-agent system prompt, the file tools
+        # (read/edit/create), and the documentation routine run at startup.
+        self.code_mode = code_mode
+        # Set by an approved file change; once the session sits idle long
+        # enough, the docs/search index is refreshed and the flag cleared.
+        self._docs_stale = False
+        self._last_activity = time.monotonic()
+        # Edits applied since the last user message, as (rel, before, after).
+        # An edit_file call that repeats or exactly reverts one of these is
+        # refused — the signature of a do/undo loop. Cleared on user input so
+        # an explicit "revert that" request is never mistaken for a loop.
+        self._applied_edits: list[tuple[str, str, str]] = []
+        # Auto-build: the detected command, run synchronously after every
+        # applied change; its result goes back in the same feedback message.
+        self._build_command: str | None = None
+        build_info = ""
+        if code_mode:
+            register_code_tools()
+            commands = detect_build_commands()
+            self._build_command = commands[0] if commands else None
+            build_info = build_info_line(commands)
         # Called with no args to (re)start the Ollama server; returns True when
         # it is reachable. Lets the chat recover from a dropped backend itself.
         self._ensure_server = ensure_server
@@ -128,11 +251,13 @@ class ChatSession:
         self._project_scope = False
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S (%A)")
         is_windows = os.name == "nt"
+        template = CODE_SYSTEM_PROMPT_TEMPLATE if code_mode else SYSTEM_PROMPT_TEMPLATE
         self.messages: list[Message] = [
-            {"role": "system", "content": SYSTEM_PROMPT_TEMPLATE.format(
+            {"role": "system", "content": template.format(
                 now=now,
                 os_name="Windows" if is_windows else "Linux/Unix",
                 shell_name="cmd.exe" if is_windows else "/bin/sh",
+                build_info=build_info,
             )}
         ]
 
@@ -156,6 +281,10 @@ class ChatSession:
             pass  # not the main thread / unsupported: fall back to default
 
         try:
+            # Code Mode always starts from fresh documentation, so the very
+            # first project_search already answers from the current source.
+            if self.code_mode:
+                self._write_docs("docs")
             self._loop()
         except KeyboardInterrupt:
             console.print("\n[dim]Até mais![/dim]")
@@ -188,13 +317,39 @@ class ChatSession:
 
     def _print_header(self) -> None:
         console.clear()
-        header = Text("🪉  Delfos", style="bold cyan")
-        console.print(Panel(header, expand=False, border_style="cyan"))
+        maxim = random.choice(DELPHIC_MAXIMS)
+        console.print(Panel(
+            Text(f"🐍  {maxim}", style="cyan italic"),
+            expand=False, border_style="cyan",
+        ))
+        self._print_badges()
         console.print(
-            f"[dim]Modelo:[/dim] [green]{self.model}[/green]  "
-            f"[dim]|  Digite[/dim] [yellow]quit[/yellow] [dim]ou[/dim] "
+            f"[dim]Digite[/dim] [yellow]quit[/yellow] [dim]ou[/dim] "
             f"[yellow]exit[/yellow] [dim]para sair[/dim]\n"
         )
+
+    def _print_badges(self) -> None:
+        """The status-chip line(s) under the header: model, Megabrain state,
+        Ollama reachability and the RAM the loaded models occupy — plus, in
+        Code Mode, the project chip (folder · git branch · build command).
+        Re-printed when Megabrain upgrades the model."""
+        reachable, used = _ollama_stats()
+        chips = [
+            f"[bold green]🔮 {self.model}[/bold green]",
+            "[magenta]⚡ megabrain[/magenta]" if self._megabrain
+            else "[dim]⚡ megabrain off[/dim]",
+            "[green]🟢 ollama[/green]" if reachable else "[red]🔴 ollama[/red]",
+            _ram_gauge(used),
+        ]
+        console.print("[dim] · [/dim]".join(chips))
+        if self.code_mode:
+            parts = [os.path.basename(os.getcwd()) or os.getcwd()]
+            branch = _git_branch()
+            if branch:
+                parts.append(branch)
+            if self._build_command:
+                parts.append(f"$ {self._build_command}")
+            console.print(f"[dim]📦 {' · '.join(parts)}[/dim]")
 
     def _loop(self) -> None:
         while True:
@@ -216,7 +371,9 @@ class ChatSession:
             try:
                 user_input = self.reader.lines.get(timeout=0.2)
             except queue.Empty:
+                self._maybe_reindex()
                 continue
+            self._last_activity = time.monotonic()
 
             if user_input is None:  # EOF / Ctrl+D → always quit
                 console.print("\n[dim]Até mais![/dim]")
@@ -342,6 +499,9 @@ class ChatSession:
         self._update_status()
 
     def _handle_message(self, user_input: str) -> None:
+        # A new user message resets loop detection: if the user themselves
+        # asks to revert a change, the inverse edit is legitimate.
+        self._applied_edits.clear()
         # Checked on the ORIGINAL message (before any rewriting), so the flag
         # survives Megabrain restructuring the prompt. Once set, it stays on
         # for the rest of the session.
@@ -397,6 +557,35 @@ class ChatSession:
         self.messages.append({"role": "user", "content": content})
         self._agent_loop()
 
+    def _maybe_reindex(self) -> None:
+        """Refresh the docs/search index once the Code Mode session sits idle
+        after approved writes, so project_search keeps answering from the
+        current source instead of the pre-change one."""
+        if not (self.code_mode and self._docs_stale):
+            return
+        if self.shells.active_ids():  # a build/test may still change files
+            return
+        if time.monotonic() - self._last_activity < CODE_REINDEX_IDLE_SECONDS:
+            return
+        self._docs_stale = False  # also stops retry loops when it fails
+        console.print(
+            "\n[dim]♻  Sessão ociosa — atualizando a documentação e o índice "
+            "de busca...[/dim]"
+        )
+        try:
+            with self._generating():  # let Ctrl+C abort the refresh
+                summary = write_project_documentation()
+        except Exception as e:
+            console.print(f"[red]Falha ao reindexar o projeto: {e}[/red]\n")
+            return
+        console.print("[dim]Índice atualizado.[/dim]\n")
+        # Recorded for the model only — no reply is generated for it.
+        self.messages.append({"role": "user", "content": (
+            "(automatic notice) The project documentation and search index "
+            "were refreshed after your recent changes:\n" + summary
+        )})
+        self.reader.allow()
+
     def _write_docs(self, user_input: str) -> None:
         """Run the documentation writer and record its summary in the history."""
         console.print("\n[bold yellow]📚  Documentando o projeto...[/bold yellow]")
@@ -419,8 +608,12 @@ class ChatSession:
         Returns the rewritten prompt, or "" when the message contained nothing
         beyond the Megabrain trigger itself.
         """
-        self.model = MEGABRAIN_MODEL
+        # Code Mode's Megabrain is a bigger CODER model, not the general one.
+        target = CODE_MEGABRAIN_MODEL if self.code_mode else MEGABRAIN_MODEL
+        self.model = target
+        self._megabrain = True
         console.print("[bold magenta]⚡ Megabrain ativado.[/bold magenta]")
+        self._print_badges()  # the model chip changed — show the new state
 
         # Only used to detect an empty message and as a last-resort fallback;
         # the rewriter gets the ORIGINAL text so it can drop the whole
@@ -434,7 +627,7 @@ class ChatSession:
         try:
             with self._generating():
                 rewritten = ask(
-                    MEGABRAIN_MODEL, MEGABRAIN_REWRITE_SYS, user_input, "Estruturando o prompt"
+                    target, MEGABRAIN_REWRITE_SYS, user_input, "Estruturando o prompt"
                 ) or stripped
         except Exception:
             rewritten = stripped  # backend hiccup: fall back to the raw prompt
@@ -454,8 +647,20 @@ class ChatSession:
                 return
             self.messages.append({"role": "assistant", "content": assistant_text})
 
-            tool_calls = parse_tool_calls(assistant_text)
-            if tool_calls is None:
+            tool_calls = parse_tool_calls(assistant_text) or []
+            # Code Mode: file changes come as ```<path>:before/after/new```
+            # fenced blocks (easier for weak models than JSON), turned here
+            # into the same edit_file/create_file calls. block_errors carry
+            # feedback for malformed block usage (an unpaired before/after).
+            block_errors: list[str] = []
+            if self.code_mode:
+                block_calls, block_errors = parse_block_edits(assistant_text)
+                tool_calls += block_calls
+            if not tool_calls and not block_errors and _BROKEN_TOOL_CALL_RE.search(
+                strip_think(assistant_text)
+            ):
+                tool_calls = self._repair_tool_calls(assistant_text) or []
+            if not tool_calls and not block_errors:
                 # Plain answer — done (streamed live above; print the permanent render)
                 console.print("[bold green]Pyth.IA:[/bold green]")
                 console.print(Markdown(strip_think(assistant_text)))
@@ -475,8 +680,9 @@ class ChatSession:
 
             # Run every tool call the model batched into this turn, one at a
             # time and in the order the model emitted them, then report all
-            # of their results back together in a single message.
-            feedbacks = []
+            # of their results back together in a single message. Any
+            # malformed-block feedback is reported alongside them.
+            feedbacks = list(block_errors)
             for i, tool_call in enumerate(tool_calls, 1):
                 # Questions about "this project" are answered by the local docs
                 # index, not the web: redirect web_search → project_search.
@@ -484,17 +690,68 @@ class ChatSession:
                     tool_call = {**tool_call, "tool": "project_search"}
                 # The shell tool needs user approval and the session manager, both
                 # of which live here — so it is handled in the chat layer instead of
-                # the stateless tool registry.
-                if tool_call.get("tool") == "shell_of_last_resort":
+                # the stateless tool registry ("shell" is Code Mode's name for the
+                # same tool). Code Mode's file changes need the same approval flow.
+                if tool_call.get("tool") in ("shell_of_last_resort", "shell"):
                     feedback = self._run_agent_shell(tool_call)
+                elif tool_call.get("tool") in ("edit_file", "create_file"):
+                    feedback = self._run_file_change(tool_call)
                 else:
                     feedback = execute_tool_call(tool_call, self.max_results)
+                    # A fresh read supersedes older copies of the same file in
+                    # the history — collapse them before appending this one.
+                    if (
+                        self.code_mode
+                        and tool_call.get("tool") == "read_file"
+                        and feedback.startswith("Current content of")
+                    ):
+                        rel = project_rel(str(tool_call.get("path", "")))
+                        if rel:
+                            self._collapse_stale_reads(rel)
                 if len(tool_calls) > 1:
                     feedback = f"=== Result {i}/{len(tool_calls)}: {tool_call.get('tool')} ===\n{feedback}"
                 feedbacks.append(feedback)
             self.messages.append({"role": "user", "content": "\n\n".join(feedbacks)})
 
         console.print("[bold red]⚠️  Reached max tool-call iterations without a final answer.[/bold red]\n")
+
+    def _repair_tool_calls(self, assistant_text: str) -> list[dict] | None:
+        """The answer looked like a tool call but didn't parse — malformed
+        JSON, or a tool that does not exist. Ask the default model, on a
+        clean history listing every available tool (forged ones included),
+        to rewrite it as a valid call. Returns the repaired call(s), or None
+        when the repair itself failed (the answer then flows to the user as
+        plain text, as before)."""
+        console.print(
+            "\n[dim]🩹  Chamada de ferramenta inválida — corrigindo o "
+            "JSON...[/dim]"
+        )
+        try:
+            with self._generating():
+                reply = ask(
+                    config.DEFAULT_MODEL,
+                    JSON_FIX_SYS.format(tools="\n".join(available_tools())),
+                    strip_think(assistant_text),
+                    "Corrigindo JSON",
+                )
+        except Exception:
+            return None
+        calls = [
+            call for call in parse_tool_calls(reply) or []
+            # A call whose args are still "<placeholder>" is the repair model
+            # echoing the templates, not a real correction — drop it.
+            if not any(
+                isinstance(v, str) and v.startswith("<") and v.endswith(">")
+                for v in call.values()
+            )
+        ]
+        if not calls:
+            console.print(
+                "[dim]Não foi possível corrigir a chamada; tratando como "
+                "resposta comum.[/dim]\n"
+            )
+            return None
+        return calls
 
     def _stream_assistant(self) -> str:
         """Stream one assistant turn, transparently (re)starting the Ollama
@@ -507,7 +764,7 @@ class ChatSession:
                     suppress_json=True,
                     model=self.model,
                     messages=trim_messages(self.messages),
-                    options=OLLAMA_OPTIONS,
+                    options=CODE_OLLAMA_OPTIONS if self.code_mode else OLLAMA_OPTIONS,
                 )
 
         try:
@@ -540,7 +797,29 @@ class ChatSession:
         console.print(prompt)
         self.reader.allow()
         answer = self.reader.lines.get()
+        self._last_activity = time.monotonic()
         return None if answer is INTERRUPT else answer
+
+    # Answers accepted as approval, and the bare refusals that carry no
+    # guidance. Anything else typed at an approval prompt is treated as a
+    # refusal PLUS a message steering the agent's next step.
+    _APPROVE_WORDS = {"y", "yes", "s", "sim"}
+    _BARE_DENY_WORDS = {"", "n", "no", "não", "nao"}
+
+    def _ask_approval(self, prompt: str) -> tuple[bool | None, str | None]:
+        """Ask a yes/no approval question that also accepts free-form
+        guidance. Returns (decision, guidance): decision is True (approved),
+        False (refused) or None (aborted with Ctrl+C/EOF); guidance is the
+        user's own message whenever they answered with something other than a
+        bare yes/no, so the agent can be steered instead of just blocked."""
+        answer = self._ask_line(prompt)
+        if answer is None:
+            return None, None
+        text = answer.strip()
+        if text.lower() in self._APPROVE_WORDS:
+            return True, None
+        guidance = None if text.lower() in self._BARE_DENY_WORDS else text
+        return False, guidance
 
     def _run_agent_shell(self, call: dict) -> str:
         """Ask the user to approve an agent command and, if allowed, start it in
@@ -567,11 +846,19 @@ class ChatSession:
             border_style="yellow",
             expand=False,
         ))
-        answer = self._ask_line("[bold yellow]Permitir? [y/N][/bold yellow]")
-        if answer is None:
+        decision, guidance = self._ask_approval(
+            "[bold yellow]Permitir? [s/N ou digite uma orientação][/bold yellow]"
+        )
+        if decision is None:
             return "The user aborted before approving the command; it was not run."
-        if answer.strip().lower() not in ("y", "yes", "s", "sim"):
+        if not decision:
             console.print("[red]Comando negado.[/red]\n")
+            if guidance:
+                return (
+                    f"The user did NOT approve running: {command}\n"
+                    f'Instead they told you: "{guidance}"\n'
+                    "Follow their guidance for your next step."
+                )
             return (
                 f"The user DENIED permission to run: {command}\n"
                 "Do not attempt to run it again. Continue without it or ask the "
@@ -585,4 +872,190 @@ class ChatSession:
             "It runs in the background and its full output will be delivered to "
             "you when it finishes. For now, briefly tell the user it is running "
             "(or make another tool call) — do not invent its output."
+        )
+
+    def _collapse_stale_reads(self, rel: str) -> None:
+        """Replace older read_file results for `rel` in the history with a
+        short stub. Their content is stale (the file changed, or a newer read
+        exists) and a single blob of tens of thousands of chars can evict the
+        user's actual request from the trimmed context — a classic cause of
+        the model forgetting WHY it was editing."""
+        marker = f"Current content of {rel}:"
+        pattern = re.compile(
+            re.escape(marker) + r".*?Now answer or make another tool call\.",
+            re.DOTALL,
+        )
+        stub = (
+            f"[stale content of {rel} — the file was changed or re-read "
+            "since; call read_file again if needed]"
+        )
+        for msg in self.messages:
+            if msg["role"] == "user" and marker in msg["content"]:
+                msg["content"] = pattern.sub(stub, msg["content"])
+
+    def _edit_loop_feedback(self, plan) -> str | None:
+        """The refusal message for an edit_file call that repeats or exactly
+        reverts an edit already applied since the last user message — the
+        signature of a do/undo loop — or None when the edit is fine."""
+        entry = (plan.rel, plan.before, plan.after)
+        if (plan.rel, plan.after, plan.before) in self._applied_edits:
+            return (
+                f"edit_file refused: this change exactly REVERTS a change "
+                f"you already applied to {plan.rel} — you are in a do/undo "
+                "loop. Stop editing. Call read_file to see the file's "
+                "current state, then tell the user what state it is in and "
+                "why you are stuck."
+            )
+        if entry in self._applied_edits:
+            return (
+                f"edit_file refused: you already applied this exact change "
+                f"to {plan.rel}. Do not repeat it — call read_file to "
+                "confirm the current content, then continue with the next "
+                "step or answer the user."
+            )
+        return None
+
+    def _run_file_change(self, call: dict) -> str:
+        """Show what an edit_file/create_file call would change — the exact
+        snippet before/after, or the whole content for a new file — and, if
+        the user approves, apply it. Returns the feedback for the model."""
+        tool = call.get("tool")
+        try:
+            if tool == "create_file":
+                plan = prepare_create(call.get("path", ""), call.get("content", ""))
+            else:
+                plan = prepare_edit(
+                    call.get("path", ""), call.get("before", ""), call.get("after", "")
+                )
+        except CodeFileError as e:
+            console.print(f"\n[red]{tool} recusado: {e}[/red]\n")
+            return f"{tool} failed: {e}\n\nFix the call and try again."
+
+        if not plan.is_new:
+            loop_feedback = self._edit_loop_feedback(plan)
+            if loop_feedback:
+                console.print(
+                    f"\n[red]{tool} recusado: loop de edição detectado em "
+                    f"{plan.rel}[/red]\n"
+                )
+                return loop_feedback
+
+        def code(snippet: str):
+            if not snippet.strip():
+                return Text("(vazio)", style="dim")
+            return Syntax(
+                snippet, Syntax.guess_lexer(plan.rel, snippet), word_wrap=True
+            )
+
+        if plan.is_new:
+            title = f"[bold yellow]Pyth.IA quer criar o arquivo {plan.rel}[/]"
+            body = code(plan.new_text)
+        else:
+            title = f"[bold yellow]Pyth.IA quer alterar o arquivo {plan.rel}[/]"
+            body = Group(
+                Text("── Antes ──", style="bold red"),
+                code(plan.before),
+                Text("── Depois ──", style="bold green"),
+                code(plan.after),
+            )
+        console.print(Panel(body, title=title, border_style="yellow"))
+        decision, guidance = self._ask_approval(
+            "[bold yellow]Aplicar esta mudança? [s/N ou digite uma orientação]"
+            "[/bold yellow]"
+        )
+        if decision is None:
+            return (
+                f"The user aborted before approving the change to {plan.rel}; "
+                "nothing was written."
+            )
+        if not decision:
+            console.print("[red]Mudança negada.[/red]\n")
+            if guidance:
+                # Explicit steering is fresh user intent — reset loop detection
+                # so a change they asked for (e.g. a revert) is not blocked.
+                self._applied_edits.clear()
+                return (
+                    f"The user did NOT approve the change to {plan.rel}; "
+                    f'nothing was written. Instead they told you: "{guidance}"\n'
+                    "Follow their guidance for your next step."
+                )
+            return (
+                f"The user DENIED the change to {plan.rel}; nothing was "
+                "written. Do not try the same change again — ask the user how "
+                "to proceed instead."
+            )
+
+        try:
+            plan.apply()
+        except OSError as e:
+            console.print(f"[red]Falha ao escrever {plan.rel}: {e}[/red]\n")
+            return f"Writing {plan.rel} failed: {e}"
+        self._docs_stale = True  # refresh the search index when idle
+        console.print(f"[green]✔  {plan.rel} salvo.[/green]\n")
+        if not plan.is_new:
+            self._applied_edits.append((plan.rel, plan.before, plan.after))
+            del self._applied_edits[:-20]
+        # Any older read_file result for this file no longer matches the disk.
+        self._collapse_stale_reads(plan.rel)
+        applied = (
+            f"{plan.rel} was created" if plan.is_new
+            else f"the snippet in {plan.rel} was replaced"
+        )
+        feedback = f"Approved and applied: {applied}." + self._run_auto_build()
+        excerpt = plan.applied_context()
+        if excerpt is not None:
+            feedback += (
+                f"\n\nThe file now reads around your change:\n{excerpt}\n\n"
+                "Before confirming to the user, verify the requested change "
+                "is COMPLETE: every symbol you added (imports, variables, "
+                "functions) must actually be USED. If anything is missing, "
+                "make the next edit_file call now instead of confirming."
+            )
+        return feedback
+
+    def _run_auto_build(self) -> str:
+        """Build the project right after an applied change (the command was
+        detected from the project itself, so no approval is asked) and WAIT
+        for it, so the model gets the result in the same feedback message.
+        Returns the whole feedback tail: the build output is only included
+        when the build exits nonzero (words like "error" in the output are
+        NOT trusted — "0 errors" and error-handling test names would read as
+        failures and send the model chasing non-problems); a clean build is
+        reported as just a success sentence."""
+        if not self._build_command:
+            return " Now briefly confirm to the user what changed."
+        console.print(f"[dim]🔨  Build automático: $ {self._build_command}[/dim]")
+        # origin="auto": streamed live like any session, but never queued for
+        # _report_shell — the result is delivered synchronously right here.
+        session = self.shells.start(self._build_command, origin="auto")
+        start = time.monotonic()
+        timed_out = False
+        with self._generating():  # Ctrl+C aborts the wait (and the session)
+            while session.running:
+                if time.monotonic() - start > CODE_BUILD_TIMEOUT_SECONDS:
+                    timed_out = True
+                    session.terminate()
+                time.sleep(0.1)
+        self._update_status()
+        if timed_out:
+            return (
+                f" The automatic build (`{self._build_command}`) was "
+                f"terminated after {CODE_BUILD_TIMEOUT_SECONDS}s without "
+                "finishing. Briefly confirm to the user what changed and "
+                "mention the build seems stuck."
+            )
+        output = session.output()
+        if session.returncode == 0:
+            return (
+                " The project was rebuilt automatically: build successful. "
+                "Now briefly confirm to the user what changed."
+            )
+        if len(output) > SHELL_OUTPUT_MAX_CHARS:
+            output = "…[início truncado]\n" + output[-SHELL_OUTPUT_MAX_CHARS:]
+        return (
+            f"\n\nThe automatic build (`{self._build_command}`) finished "
+            f"with exit code {session.returncode} and reported problems:\n"
+            f"{output or '(sem saída)'}\n\n"
+            "If your change caused this, explain the problem to the user and "
+            "propose a fix; otherwise briefly confirm what changed."
         )

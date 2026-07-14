@@ -5,7 +5,7 @@ Every non-gitignored, non-configuration file — dotfiles and files inside
 dotfolders (.github/, .vscode/, ...) are always ignored — is hashed into
 .pythia/index.json (keyed by its path relative to the project root, so the
 project can move or be cloned elsewhere without invalidating the docs). Files whose hash is new or changed
-are fed to the coder model (config.DOC_MODEL), which writes markdown docs
+are fed to the default model (config.DEFAULT_MODEL), which writes markdown docs
 mirroring the source tree under .pythia/docs/ — each doc streams live in
 the terminal as it is written. Companion files sharing the
 same path and stem (app.component.ts + app.component.html) are documented
@@ -29,10 +29,6 @@ directly into .pythia/embeddings.json — the semantic index consumed by the
 project_search tool. Like index.json it is maintained incrementally: the
 index is rewritten after every group, and records belonging to groups that
 disappeared or changed are dropped/replaced.
-Whenever
-any doc changed, all per-file docs are fed to the general model
-(config.DOC_SYNTH_MODEL) to produce .pythia/PROJECT.md, a comprehensive
-overview of the whole project.
 """
 
 import fnmatch
@@ -52,7 +48,6 @@ from pythia.config import (
     DOC_DIAGRAM_DOC_MAX_CHARS,
     DOC_DIAGRAMS_MAX,
     DOC_GROUP_MAX_CHARS,
-    DOC_PROJECT_MAX_CHARS,
     EMBED_SLICE_CHARS,
     EMBED_SLICE_OVERLAP,
     OLLAMA_OPTIONS,
@@ -62,7 +57,6 @@ from pythia.prompts import (
     DOC_DIAGRAM_GEN_SYS,
     DOC_DIAGRAM_SELECT_SYS,
     DOC_FILE_SYS,
-    DOC_PROJECT_SYS,
 )
 from pythia.streaming import stream_markdown
 from pythia.terminal import console
@@ -70,7 +64,6 @@ from pythia.terminal import console
 PYTHIA_DIR = ".pythia"
 DOCS_DIRNAME = "docs"
 INDEX_FILENAME = "index.json"
-PROJECT_DOC_FILENAME = "PROJECT.md"
 
 # Suffix of the folders the old layout used ("<name>-meta/", beside a
 # "<name>.md" doc) — kept only so upgraded projects get their leftovers
@@ -326,32 +319,9 @@ def _group_source(root: Path, members: dict[str, str]) -> str:
 
 def _document_group(key: str, source: str) -> str:
     return _ask_streaming(
-        config.DOC_MODEL, DOC_FILE_SYS, source,
+        config.DEFAULT_MODEL, DOC_FILE_SYS, source,
         f"Documentando {key}", f"[bold cyan]📄  {key}[/bold cyan]",
     )
-
-
-def _write_project_doc(root: Path, groups: dict[str, dict[str, str]]) -> bool:
-    """Feed every per-file doc to the model and save the general PROJECT.md."""
-    parts = []
-    for key in sorted(groups):
-        try:
-            parts.append(f"=== Docs for {key} ===\n{_doc_path(root, key).read_text('utf-8')}")
-        except OSError:
-            continue
-    if not parts:
-        return False
-    material = "\n\n".join(parts)
-    if len(material) > DOC_PROJECT_MAX_CHARS:
-        material = material[:DOC_PROJECT_MAX_CHARS] + "\n…[content truncated]"
-    overview = _ask_streaming(
-        config.DOC_SYNTH_MODEL, DOC_PROJECT_SYS, material,
-        "Documentação geral", f"[bold cyan]📖  {PROJECT_DOC_FILENAME}[/bold cyan]",
-    )
-    if not overview:
-        return False
-    (root / PYTHIA_DIR / PROJECT_DOC_FILENAME).write_text(overview + "\n", "utf-8")
-    return True
 
 
 # ── PlantUML diagrams (saved beside the documented source files) ──────────────
@@ -434,7 +404,7 @@ def _select_diagrams(source: str, doc: str) -> list[dict[str, str]]:
     """Ask the model which UML diagrams (if any) apply to this group."""
     doc_part = doc[:DOC_DIAGRAM_DOC_MAX_CHARS]
     reply = ask(
-        config.DOC_MODEL, DOC_DIAGRAM_SELECT_SYS,
+        config.DEFAULT_MODEL, DOC_DIAGRAM_SELECT_SYS,
         f"{source}\n\n=== Documentation just written ===\n{doc_part}",
         "Avaliando diagramas",
     )
@@ -716,7 +686,7 @@ def _generate_diagrams(
             f"{spec['title'] or '(sem título)'}[/dim]"
         )
         raw = _ask_streaming(
-            config.FORGE_MODEL, DOC_DIAGRAM_GEN_SYS,
+            config.DEFAULT_MODEL, DOC_DIAGRAM_GEN_SYS,
             (f"=== Diagram to produce ===\n"
              f"type: {spec['type']}\n"
              f"title: {spec['title'] or '(pick a fitting one)'}\n"
@@ -834,12 +804,6 @@ def write_project_documentation() -> str:
         _save_index(root, persisted)
     documented = [k for k in todo if k not in failed]
 
-    project_doc = root / PYTHIA_DIR / PROJECT_DOC_FILENAME
-    regenerated = False
-    if documented or stale or not project_doc.is_file():
-        console.print("[bold yellow]📖  Gerando a documentação geral do projeto...[/bold yellow]")
-        regenerated = _write_project_doc(root, new_groups)
-
     lines = [
         f"Project documentation updated under {root / PYTHIA_DIR}:",
         f"- {len(persisted)} file(s) hashed into {INDEX_FILENAME}",
@@ -849,8 +813,6 @@ def write_project_documentation() -> str:
          f"({svgs_rendered} rendered to SVG) beside the docs"),
         f"- {slices_embedded} text slice(s) embedded for semantic search",
         f"- {len(stale)} stale doc(s) removed",
-        (f"- general documentation regenerated at {PROJECT_DOC_FILENAME}"
-         if regenerated else "- general documentation unchanged"),
         f"- search index at {EMBED_FILENAME}: {len(embeddings)} slice(s) total",
     ]
     if failed:
