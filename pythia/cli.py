@@ -81,6 +81,13 @@ def _parse_args() -> argparse.Namespace:
              "with the forge model by default (combines with --slop)",
     )
     parser.add_argument(
+        "--background-task",
+        action="store_true",
+        help=f"Limit Ollama to {config.BACKGROUND_TASK_THREADS} CPU threads so "
+             "the machine stays responsive for other work (overrides the "
+             "default of physical cores minus 2)",
+    )
+    parser.add_argument(
         "prompt",
         nargs="*",
         help="Optional first prompt to send immediately "
@@ -228,6 +235,12 @@ def main() -> None:
         # Code Mode chats with the forge (coder) model unless the user picked
         # a model explicitly; under --slop that is the tiny coder tier.
         args.model = config.FORGE_MODEL
+    if args.background_task:
+        # Mutate the dicts in place so every module that already imported them
+        # by reference (llm, research, forge, chat) sees the clamped count.
+        threads = config.BACKGROUND_TASK_THREADS
+        config.OLLAMA_OPTIONS["num_thread"] = threads
+        config.CODE_OLLAMA_OPTIONS["num_thread"] = threads
     _check_dependencies()
 
     # Imported only after the dependency check — these pull in rich/ollama.

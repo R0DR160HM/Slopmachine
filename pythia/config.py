@@ -1,6 +1,11 @@
 """Static configuration shared across the application."""
 
-# Also writes the per-file docs (write_project_documentation).
+import os
+import subprocess
+import sys
+
+# Also writes the per-group docs that feed the search index
+# (write_project_documentation).
 DEFAULT_MODEL = "qwen2.5:1.5b"
 
 # Model activated when the user mentions "megabrain" in a message.
@@ -59,13 +64,59 @@ FORGED_RESULT_MAX_CHARS = 4000
 # model's reply.
 NUM_CTX = 30_000
 
+# CPU threads handed to Ollama. The stdlib only exposes *logical* cores
+# (os.cpu_count double-counts hyperthreads), so _physical_core_count() asks the
+# OS for the physical count and falls back to the logical one when that fails.
+
+
+def _physical_core_count() -> int:
+    """Best-effort number of physical CPU cores on this machine."""
+    try:
+        if sys.platform == "darwin":
+            out = subprocess.run(
+                ["sysctl", "-n", "hw.physicalcpu"],
+                capture_output=True, text=True, timeout=2,
+            )
+            return int(out.stdout.strip())
+        if sys.platform.startswith("linux"):
+            cores = set()
+            phys_id = core_id = None
+            with open("/proc/cpuinfo") as f:
+                for line in f:
+                    if line.startswith("physical id"):
+                        phys_id = line.split(":", 1)[1].strip()
+                    elif line.startswith("core id"):
+                        core_id = line.split(":", 1)[1].strip()
+                    elif not line.strip() and phys_id is not None:
+                        cores.add((phys_id, core_id))
+                        phys_id = core_id = None
+            if cores:
+                return len(cores)
+        if os.name == "nt":
+            out = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "(Get-CimInstance Win32_Processor | "
+                 "Measure-Object -Property NumberOfCores -Sum).Sum"],
+                capture_output=True, text=True, timeout=5,
+            )
+            return int(out.stdout.strip())
+    except Exception:
+        pass
+    return os.cpu_count() or 1
+
+
+# Leave 2 physical cores free by default so the machine stays usable while the
+# model runs; --background-task clamps the thread count to this instead.
+BACKGROUND_TASK_THREADS = 2
+NUM_THREAD = max(1, _physical_core_count() - 2)
+
 # Options passed on every ollama.chat() call. repeat_penalty is Ollama's
 # default value, pinned so a model whose Modelfile disables it still gets it;
 # repeat_last_n widens the penalty's horizon from the 64-token default so
 # multi-line repetition loops are discouraged at generation time, before the
 # streaming loop guard has to cut them off.
 OLLAMA_OPTIONS = {
-    "num_thread": 8,
+    "num_thread": NUM_THREAD,
     "num_ctx": NUM_CTX,
     "repeat_penalty": 1.1,
     "repeat_last_n": 256,

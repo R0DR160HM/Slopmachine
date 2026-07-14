@@ -495,11 +495,6 @@ class ChatSession:
         if PROJECT_SCOPE_RE.search(user_input):
             self._project_scope = True
 
-        # "docs" alone triggers the documentation writer, no model involved.
-        if user_input.strip().lower() == "docs":
-            self._write_docs(user_input)
-            return
-
         if MEGABRAIN_RE.search(user_input):
             user_input = self._activate_megabrain(user_input)
             if not user_input:
