@@ -87,9 +87,10 @@ _FENCE_RE = re.compile(r"^```[a-zA-Z-]*\s*\n(.*)\n```\s*$", re.DOTALL)
 
 # Test files are never indexed nor documented: anything inside a test/tests
 # or mock/mocks folder, or named like foo.test.ts / foo_test.go / foo.spec.ts
-# / test_foo.py.
+# / test_foo.py / app.e2e-spec.ts (the separator before test/spec may be a
+# dot, underscore or hyphen).
 _TEST_DIR_RE = re.compile(r"^(tests?|mocks?)$", re.IGNORECASE)
-_TEST_NAME_RE = re.compile(r"(^|[._])(test|spec)(?=[._])", re.IGNORECASE)
+_TEST_NAME_RE = re.compile(r"(^|[._-])(test|spec)(?=[._])", re.IGNORECASE)
 
 
 # ── File discovery ─────────────────────────────────────────────────────────────

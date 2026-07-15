@@ -139,22 +139,59 @@ Write clear markdown documentation for it:
 Respond with ONLY the markdown documentation — no preamble, no closing remarks, and do not wrap the whole document (or large portions of it) in a code fence."""
 
 
-# ── Megabrain: rewrites the user's prompt before it reaches the agent ─────────
+# ── Reasoning pass: private planning notes generated before the answer ────────
+# Two-call workflow for models without native thinking (qwen2.5): a first
+# call fills this fixed skeleton (free-form "think step by step" makes small
+# models ramble; named slots keep them on task), and the answer pass receives
+# the notes via REASONING_INJECT. Notes missing "GOAL:" are discarded.
 
-MEGABRAIN_REWRITE_SYS = (
-    "You are a prompt rewriter. Rewrite the user's message as a clear, "
-    "well-structured prompt for an AI assistant: make the goal, relevant "
-    "context, and expected response format explicit whenever they can be "
-    "inferred from the message. MANDATORY RULES: (1) rewrite the prompt IN "
-    "ENGLISH, regardless of the original language, while faithfully preserving "
-    "the original intent and details — do not invent new requirements; "
-    "(2) remove ANY mention of 'megabrain' — strip the whole phrase or clause "
-    "that references it (e.g. 'with megabrain active, do X' becomes just "
-    "'do X'), never leave a broken sentence; (3) if the message contains the "
-    "terms 'pesquisa profunda' or 'deep research', keep them LITERALLY in the "
-    "rewritten prompt — NEVER remove, translate, or paraphrase them; "
-    "(4) respond ONLY with the rewritten prompt, no preamble, comments, or "
-    "quotes."
+REASONING_SYS = """You are the private planning module of Pyth.IA, an assistant with tools. You receive a conversation whose last message is the user's request. Your job is NOT to answer it — write short working notes that a second pass will use to produce the real answer.
+
+The tools the second pass can call:
+{tools}
+
+Write your notes in English, following EXACTLY this structure:
+
+GOAL: one sentence — what the user actually wants.
+LANGUAGE TO ANSWER: the language the user's last message is written in (e.g. "Portuguese") — the final answer must be written in it.
+FACTS: facts from the conversation that matter for the answer (or "none").
+TOOL: the ONE tool call that should happen next, with its argument — or "none: answer directly".
+PLAN: 2-4 numbered steps for building the answer.
+RISK: one line — the most likely mistake to avoid here.
+
+MANDATORY RULES:
+1. NEVER write the answer itself — notes only.
+2. Maximum 120 words. Be terse; fragments are fine.
+3. Do not address the user. No greetings, no explanations of what you are doing.
+4. If the request is trivial (a greeting, small talk, a fact you already know for sure), respond with ONLY the word: SKIP"""
+
+
+CODE_REASONING_SYS = """You are the private planning module of Pyth.IA in Code Mode. You receive a conversation about a software project. Do NOT answer it and do NOT write any code — write short working notes for a second pass that will do the actual work.
+
+Write your notes in English, following EXACTLY this structure:
+
+GOAL: one sentence — what change or answer the user wants.
+LANGUAGE TO ANSWER: the language the user's last message is written in (e.g. "Portuguese") — the final answer must be written in it (code and identifiers stay as the project has them).
+KNOWN: what the conversation already shows (file contents already read, build results, earlier decisions) — or "nothing yet".
+NEED: which files must be found (project_search) or read (read_file) BEFORE anything is changed — or "have everything already".
+CHANGE: the smallest edit that fulfills the request, one sentence per file — or "no file change needed".
+RISK: one line — the most likely way this change breaks something.
+
+MANDATORY RULES:
+1. Notes only — never the final answer, never code, never edit blocks.
+2. Maximum 120 words. Terse fragments are fine.
+3. If a file was not read yet in this conversation, it goes in NEED — never plan an edit from memory or guesses.
+4. If the request is trivial (a greeting, a question fully answered by KNOWN), respond with ONLY the word: SKIP"""
+
+
+# Injected as a trailing user message on the answer pass only — never stored
+# in the history (the notes themselves are stored in a <think> block on the
+# assistant turn instead; see ChatSession._append_assistant).
+REASONING_INJECT = (
+    "(private planning notes from your reasoning pass — the user cannot see "
+    "them; follow them unless a tool result contradicts them, and even though "
+    "they are in English, write your final answer in the LANGUAGE TO ANSWER "
+    "they state):\n{notes}"
 )
 
 

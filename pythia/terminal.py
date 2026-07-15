@@ -154,10 +154,26 @@ class PromptArea:
             if self.visible:
                 self.draw()
 
+    def live_tail(self) -> tuple[str | None, str | None]:
+        """Snapshot of the bottom block — (status line, prompt line with the
+        typed buffer), each None/"" when absent — for re-drawing INSIDE a rich
+        Live region while the real prompt is hidden, so the "Pensando..."
+        timer and the input line stay on screen during streaming.
+
+        Deliberately lock-free: it is called from the Live refresh thread,
+        and taking `lock` there could deadlock against a SafeConsole.print
+        that holds `lock` while waiting on the console's internal lock.
+        A slightly stale status/buffer is harmless for display.
+        """
+        status = self._status or self._base_status
+        prompt = (PROMPT + "".join(self._buffer)) if self._active else None
+        return status, prompt
+
     def hide(self) -> None:
         """Take the prompt off the screen (e.g. while a live region renders).
 
-        Typed characters keep accumulating unechoed until show() redraws them.
+        Typed characters keep accumulating unechoed until show() redraws them
+        — though a live region that embeds live_tail() echoes them meanwhile.
         """
         with self.lock:
             if self.visible:

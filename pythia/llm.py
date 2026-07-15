@@ -166,7 +166,10 @@ def stream_chat(label: str, **chat_kwargs) -> Iterator[str]:
 
 def _stream_chat_once(label: str, **chat_kwargs) -> Iterator[str]:
     tokens: queue.Queue = queue.Queue()
-    chat_kwargs.setdefault("think", False)
+    # Native thinking is ALWAYS off — every chat call funnels through here,
+    # so a user-picked model that supports it can never conflict with our own
+    # reasoning pass (chat._reason).
+    chat_kwargs["think"] = False
     stop = threading.Event()  # set to abort the generation server-side
 
     def _worker() -> None:

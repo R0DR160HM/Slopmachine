@@ -27,17 +27,21 @@ from pythia.config import (
     MAX_TOOL_CALLS,
     MEGABRAIN_MODEL,
     OLLAMA_OPTIONS,
+    REASONING_MIN_PROMPT_CHARS,
+    REASONING_NUM_PREDICT,
     THINKING_LABELS,
 )
 from pythia.llm import Message, ask, strip_think, trim_messages
 from pythia.prompts import (
+    CODE_REASONING_SYS,
     CODE_SYSTEM_PROMPT_TEMPLATE,
     JSON_FIX_SYS,
-    MEGABRAIN_REWRITE_SYS,
+    REASONING_INJECT,
+    REASONING_SYS,
     SYSTEM_PROMPT_TEMPLATE,
 )
 from pythia.research import DEEP_RESEARCH_RE, extract_topic, run_deep_research
-from pythia.streaming import stream_markdown
+from pythia.streaming import stream_markdown, stream_thinking
 from pythia.terminal import INTERRUPT, InputReader, console, prompt_area
 from pythia.tools import (
     display_images,
@@ -200,11 +204,17 @@ class ChatSession:
 
     def __init__(
         self, model: str, max_results: int, ensure_server=None,
-        code_mode: bool = False,
+        code_mode: bool = False, slop: bool = False,
     ) -> None:
         self.model = model  # may be upgraded to Megabrain mid-session
         self.max_results = max_results
         self._megabrain = False  # shown as a chip in the header badges
+        # --slop: the tiniest models — the reasoning pass is never run (it
+        # would double the latency for notes the 0.5b can't write anyway).
+        self.slop = slop
+        # Regular chats reason once per user message, and only for long
+        # prompts: set in _handle_message, consumed by _should_reason.
+        self._reason_next = False
         # Code Mode (--code): coding-agent system prompt, the file tools
         # (read/edit/create), and the documentation routine run at startup.
         self.code_mode = code_mode
@@ -536,6 +546,12 @@ class ChatSession:
         else:
             content = user_input
 
+        # Regular chats only earn a reasoning pass for a long prompt, and only
+        # before the first step (gated on the user's own text, not the
+        # search-context-inflated message). Code Mode/Megabrain ignore this
+        # flag and reason on every step; --slop never reasons.
+        self._reason_next = len(user_input) >= REASONING_MIN_PROMPT_CHARS
+
         self.messages.append({"role": "user", "content": content})
         self._agent_loop()
 
@@ -584,50 +600,37 @@ class ChatSession:
         self.reader.allow()
 
     def _activate_megabrain(self, user_input: str) -> str:
-        """Switch to the Megabrain model and rewrite the prompt in a more
-        structured form (Megabrain mentions removed) before the agent sees it.
+        """Switch to the Megabrain model. Megabrain's old prompt-rewrite
+        pre-pass is gone — the reasoning pass, which runs before EVERY step
+        while Megabrain is active, does that job now — so the message only
+        has the Megabrain mention stripped.
 
-        Returns the rewritten prompt, or "" when the message contained nothing
+        Returns the cleaned prompt, or "" when the message contained nothing
         beyond the Megabrain trigger itself.
         """
         # Code Mode's Megabrain is a bigger CODER model, not the general one.
-        target = CODE_MEGABRAIN_MODEL if self.code_mode else MEGABRAIN_MODEL
-        self.model = target
+        self.model = CODE_MEGABRAIN_MODEL if self.code_mode else MEGABRAIN_MODEL
         self._megabrain = True
         console.print("[bold magenta]⚡ Megabrain ativado.[/bold magenta]")
         self._print_badges()  # the model chip changed — show the new state
 
-        # Only used to detect an empty message and as a last-resort fallback;
-        # the rewriter gets the ORIGINAL text so it can drop the whole
-        # surrounding expression (e.g. "Com o mega brain ativo, ...") instead
-        # of us leaving a broken sentence behind.
         stripped = MEGABRAIN_RE.sub("", user_input).strip(" \t,.;:!?-")
         if not stripped:
             self.messages.append({"role": "assistant", "content": "Megabrain ativado."})
             return ""
-
-        try:
-            with self._generating():
-                rewritten = ask(
-                    target, MEGABRAIN_REWRITE_SYS, user_input, "Estruturando o prompt"
-                ) or stripped
-        except Exception:
-            rewritten = stripped  # backend hiccup: fall back to the raw prompt
-        console.print(
-            Panel(Markdown(rewritten), title="Prompt reestruturado", border_style="magenta")
-        )
-        return rewritten
+        return stripped
 
     def _agent_loop(self) -> None:
         """Let the model call tools until it produces a final plain-text answer."""
         for _ in range(MAX_TOOL_CALLS):
             self.reader.allow()  # show "Digite:"; SafeConsole keeps it below output
+            notes = self._reason() if self._should_reason() else None
             try:
-                assistant_text = self._stream_assistant()
+                assistant_text = self._stream_assistant(notes)
             except Exception as e:  # keep the session alive on any model error
                 self._report_model_error(e)
                 return
-            self.messages.append({"role": "assistant", "content": assistant_text})
+            self._append_assistant(assistant_text, notes)
 
             tool_calls = parse_tool_calls(assistant_text) or []
             # Code Mode: file changes come as ```<path>:before/after/new```
@@ -735,17 +738,90 @@ class ChatSession:
             return None
         return calls
 
-    def _stream_assistant(self) -> str:
+    def _should_reason(self) -> bool:
+        """Whether the next assistant step gets a reasoning pass first.
+        Code Mode and Megabrain reason before EVERY step; --slop never
+        reasons; regular chats reason once per user message, and only when
+        the prompt was long (the flag set in _handle_message)."""
+        if self.slop:
+            return False
+        if self.code_mode or self._megabrain:
+            return True
+        if self._reason_next:
+            self._reason_next = False  # once per user message
+            return True
+        return False
+
+    def _reason(self) -> str | None:
+        """The reasoning pass: private planning notes from a separate model
+        call, made before the answer pass. Streamed to the user in a dim
+        panel (clearly not the final answer); every trace of it on screen is
+        transient and gone once the turn's real output is printed.
+
+        Returns the notes, or None when the model answered SKIP, the notes
+        are malformed (missing the GOAL: skeleton) or the call failed — the
+        answer pass then runs without notes, exactly as before."""
+        if self.code_mode:
+            system = CODE_REASONING_SYS
+        else:
+            system = REASONING_SYS.format(tools="\n".join(available_tools()))
+        messages = [{"role": "system", "content": system}] + trim_messages(
+            self.messages
+        )[1:]
+        options = {
+            **(CODE_OLLAMA_OPTIONS if self.code_mode else OLLAMA_OPTIONS),
+            "temperature": 0.2,
+            "num_predict": REASONING_NUM_PREDICT,
+        }
+        try:
+            with self._generating():  # let Ctrl+C abort the reasoning pass
+                raw = stream_thinking(
+                    "Raciocinando",
+                    model=self.model,
+                    messages=messages,
+                    options=options,
+                )
+        except Exception:
+            return None  # best-effort: the answer pass proceeds without notes
+        notes = strip_think(raw).strip()
+        if not notes or notes.upper() == "SKIP" or "GOAL:" not in notes:
+            return None
+        return notes
+
+    def _append_assistant(self, text: str, notes: str | None) -> None:
+        """Record one assistant turn in the history. A turn that had a
+        reasoning pass stores its notes in a <think> block ahead of the
+        answer — and any OLDER stored reasoning is stripped first, so only
+        the latest notes spend context-window space."""
+        if notes:
+            for msg in self.messages:
+                if msg["role"] == "assistant" and "<think>" in msg["content"]:
+                    msg["content"] = strip_think(msg["content"])
+            text = f"<think>{notes}</think>\n{text}"
+        self.messages.append({"role": "assistant", "content": text})
+
+    def _stream_assistant(self, thinking: str | None = None) -> str:
         """Stream one assistant turn, transparently (re)starting the Ollama
-        server and retrying once if the backend connection drops."""
+        server and retrying once if the backend connection drops.
+
+        `thinking` (the reasoning pass's notes) is injected as a trailing
+        user message the history never keeps, and stays displayed above the
+        streaming answer until the turn ends."""
         def once() -> str:
+            messages = trim_messages(self.messages)
+            if thinking:
+                messages = messages + [{
+                    "role": "user",
+                    "content": REASONING_INJECT.format(notes=thinking),
+                }]
             with self._generating():  # let Ctrl+C abort the in-flight generation
                 return stream_markdown(
                     next(self.labels),
                     header="[bold green]Pyth.IA:[/bold green]",
                     suppress_json=True,
+                    thinking=thinking,
                     model=self.model,
-                    messages=trim_messages(self.messages),
+                    messages=messages,
                     options=CODE_OLLAMA_OPTIONS if self.code_mode else OLLAMA_OPTIONS,
                 )
 

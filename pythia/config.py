@@ -135,6 +135,18 @@ HISTORY_CHAR_BUDGET = 100_000
 # Guard against infinite tool-call loops within a single user turn.
 MAX_TOOL_CALLS = 10
 
+# ── Reasoning pass (two-call workflow for models without native thinking) ─────
+
+# Regular chats only run the reasoning pass when the user's message is at
+# least this long (and then only once, before the first step); Code Mode and
+# Megabrain reason before EVERY step, and --slop never reasons.
+REASONING_MIN_PROMPT_CHARS = 200
+
+# Hard cap (tokens) on the reasoning pass's output. The prompt asks for at
+# most ~120 words, but small models don't count words — this is the real
+# ceiling, so a rambling reasoning cannot eat the turn's latency budget.
+REASONING_NUM_PREDICT = 400
+
 # Repetition guard on EVERY streamed response (chat, docs, deep research,
 # code...): when the last N complete lines already appeared earlier in the
 # same response — verbatim, or identical after erasing list numbers/bullets —

@@ -269,6 +269,7 @@ def main() -> None:
                 max_results=args.results,
                 ensure_server=ensure_server,
                 code_mode=args.code,
+                slop=args.slop,  # slop mode never runs the reasoning pass
             )
             session.run(initial_prompt=" ".join(args.prompt).strip())
     finally:
